@@ -19,6 +19,9 @@ void *edge_server_process(void *p);
 void *monitor(void *p);
 void *maintenance_manager(void *p);
 void get_running_config(FILE *ptr);
+void show_server_info(struct edge_server s);
+
+// compile with : gcc -Wall -pthread main.c edge_server.h -o test
 
 int main(int argc, char const *argv[])
 {
@@ -74,33 +77,34 @@ void get_running_config(FILE *ptr)
                   struct edge_server EDGE_SERVERS[EDGE_SERVER_NUMBER];
                   char *server_name;
                   int vCPU_capacities[2];
-                  int l, x;
+                  int x;
+                  printf("1\n");
                   // define edge servers one by one
                   for (x = 0; x < EDGE_SERVER_NUMBER; x++)
                   {
-                        l = 0;
                         fgets(c, 30, ptr);
                         // removes newline
                         c[strcspn(c, "\n")] = 0;
                         // process line
                         char *token = strtok(c, ",");
                         server_name = token;
-                        while (token != NULL)
-                        {
-                              token = strtok(NULL, ",");
-                              vCPU_capacities[l] = atoi(token);
-                              l++;
-                        }
+                        token = strtok(NULL, ",");
+                        vCPU_capacities[0] = atoi(token);
+                        token = strtok(NULL, ",");
+                        vCPU_capacities[1] = atoi(token);
                         // define server characteristics
-                        struct edge_server server;
-                        strncpy(server.name, server_name, 20);
-                        server.vCPU_1_capacity = vCPU_capacities[0];
-                        server.vCPU_2_capacity = vCPU_capacities[1];
-                        // add server to server array
-                        EDGE_SERVERS[x] = server;
-                        printf("1");
+                        strncpy(EDGE_SERVERS[x].name, server_name, 20);
+                        EDGE_SERVERS[x].vCPU_1_capacity = vCPU_capacities[0];
+                        EDGE_SERVERS[x].vCPU_2_capacity = vCPU_capacities[1];
+                        //-----------------------
+                        show_server_info(EDGE_SERVERS[x]);
                   }
             }
       }
       fclose(ptr);
+}
+
+void show_server_info(struct edge_server s)
+{
+      printf("Name: %s\nvCPU1 Capacity:%d \nvCPU1 Capacity:%d\n", s.name, s.vCPU_1_capacity, s.vCPU_2_capacity);
 }
