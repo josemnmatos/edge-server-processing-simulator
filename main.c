@@ -12,6 +12,7 @@
 int EDGE_SERVER_NUMBER;
 int QUEUE_POS;
 int MAX_WAIT;
+FILE *log_ptr, *config_ptr;
 
 void *system_manager(void *p);
 void *task_manager(void *p);
@@ -20,6 +21,7 @@ void *monitor(void *p);
 void *maintenance_manager(void *p);
 void get_running_config(FILE *ptr);
 void show_server_info(struct edge_server s);
+void output_str(char *s);
 
 // compile with : gcc -Wall -pthread main.c edge_server.h -o test
 
@@ -34,13 +36,19 @@ int main(int argc, char const *argv[])
 
 void *system_manager(void *p)
 {
-      FILE *ptr;
+      // open log file
+      log_ptr = fopen("log.txt", "w");
       // open config file
-      ptr = fopen("config.txt", "r");
-      get_running_config(ptr);
+      config_ptr = fopen("config.txt", "r");
+      get_running_config(config_ptr);
+      fclose(config_ptr);
+      fclose(log_ptr);
       pthread_exit(NULL);
 }
 
+/*
+Function to handle the config.txt file and define running variables
+*/
 void get_running_config(FILE *ptr)
 {
       char c[30];
@@ -107,4 +115,18 @@ void get_running_config(FILE *ptr)
 void show_server_info(struct edge_server s)
 {
       printf("Name: %s\nvCPU1 Capacity:%d \nvCPU1 Capacity:%d\n", s.name, s.vCPU_1_capacity, s.vCPU_2_capacity);
+}
+
+/*
+Function to synchronize terminal and log file output
+*/
+void output_str(char *s)
+{
+      time_t now;
+      now = time(NULL);
+      struct tm *time_now = localtime(&now);
+      // log file output
+      fprintf(log_ptr, s);
+      // terminal output
+      printf(s);
 }
