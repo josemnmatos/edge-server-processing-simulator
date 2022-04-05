@@ -23,5 +23,10 @@
     "**/.*/**",
     "**/.vscode",
     "**/.vscode/**"
-  ]
+  ],
+  "files.associations": {
+    "*.java": "java",
+    "*.m": "matlab",
+    "pthread.h": "c"
+  }
 }
