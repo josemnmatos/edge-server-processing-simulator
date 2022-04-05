@@ -1,0 +1,52 @@
+------------------- ** Offloading de tarefas computacionais	no edge **-----------------------
+
+Processos:-------------------------
+-Mobile Node
+-System Manager
+-Task Manager
+-Edge Server
+-Monitor
+-Maintenance Server
+-----------------------------------
+
+Pipes:-----------------------------
+-Named Pipe : ->Task Manager
+-SHM- zona de memória partilhada pelo System Manager, Task Manager, Edge Server e Monitor
+-Unnamed Pipes : Task Manager <--> Processos do Edge Server
+-MQ: message queue : Edge Server <--> Maintenance Manager
+-----------------------------------
+
+Log file:--------------------------------------------------
+Todo	o	output da	aplicação	deve	ser	escrito	de	forma	legível	num	ficheiro	de	texto	“log.txt”.	Cada
+escrita neste	ficheiro	deve	sempre ser	precedida	pela	escrita	da	mesma	informação	na	consola,
+de	modo	a	poder	ser	facilmente	visualizada	enquanto	decorre	a	simulação.
+Deverá	pôr	no	log todos	os	eventos	relevantes	acompanhados	da	sua	data	e	hora,	incluindo:
+- Início e	fim	do	programa;
+- Criação	de	cada	um	dos	processos
+- Erros	ocorridos
+- Mudança	de	estado	de	cada	Edge	Server
+- Sinais	recebidos
+-----------------------------------------------------------
+
+Config.txt file:------------------------------------------
+QUEUE_POS - número de slots na fila interna do Task Manager
+MAX_WAIT - tempo máximo para que o processo Monitor eleve o nível de performance dos
+Edge Servers (em segundos)
+EDGE_SERVER_NUMBER - número de edge servers (>=2)
+Nome do servidor de edge e capacidade de processamento de cada vCPU em MIPS
+----------------------------------------------------------
+
+Notas:----------------------------------------------------
+1.Inclua	 informação	 de	 debug que	 facilite	 o	 acompanhamento	 da	 execução	 do	 programa,
+utilizando	por	exemplo	a	seguinte	abordagem:
+#define DEBUG //remove this line to remove debug messages
+(...)
+#ifdef DEBUG
+printf(“Creating shared memory\n”);
+#endif
+
+2.Compilação:	o	programa	deverá	compilar	com	recurso	a	uma	makefile;	não	deve	ter	erros
+em	qualquer	uma	das	metas;	evite	 também	os	warnings,	exceto	quando	 tiver	uma	boa
+justificação	para	a	sua	ocorrência	(é	raro	acontecer!).
+- A	não	compilação	do	código	enviado	implica	uma	classificação	de	ZERO	valores na	meta
+correspondente.

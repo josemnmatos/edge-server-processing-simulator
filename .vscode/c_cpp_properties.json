@@ -1,14 +1,14 @@
 {
   "configurations": [
     {
-      "name": "windows-gcc-x64",
+      "name": "gdb-x64",
       "includePath": [
         "${workspaceFolder}/**"
       ],
-      "compilerPath": "gcc",
+      "compilerPath": "C:\\cygwin64\\bin\\gdb",
       "cStandard": "${default}",
       "cppStandard": "${default}",
-      "intelliSenseMode": "windows-gcc-x64",
+      "intelliSenseMode": "${default}",
       "compilerArgs": []
     }
   ],
