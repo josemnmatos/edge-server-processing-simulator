@@ -12,7 +12,10 @@
 int EDGE_SERVER_NUMBER;
 int QUEUE_POS;
 int MAX_WAIT;
-FILE *log_ptr, *config_ptr;
+FILE *log_ptr;
+FILE *config_ptr;
+time_t now;
+struct tm *time_now;
 
 void *system_manager(void *p);
 void *task_manager(void *p);
@@ -28,7 +31,7 @@ void output_str(char *s);
 int main(int argc, char const *argv[])
 {
       /* code */
-      output_str("OFFLOAD SIMULATOR STARTING\n");
+      // output_str("OFFLOAD SIMULATOR STARTING\n");
       pthread_t thread1;
       pthread_create(&thread1, NULL, system_manager, NULL);
       pthread_join(thread1, NULL);
@@ -37,14 +40,15 @@ int main(int argc, char const *argv[])
 
 void *system_manager(void *p)
 {
-      // open log file
+      // create log file
       log_ptr = fopen("log.txt", "w");
+      output_str("OFFLOAD SIMULATOR STARTING\n");
+      fclose(log_ptr);
       // open config file
       config_ptr = fopen("config.txt", "r");
       get_running_config(config_ptr);
-      output_str("CONFIGURATION SET\n");
+      // output_str("CONFIGURATION SET\n");
       fclose(config_ptr);
-      fclose(log_ptr);
       pthread_exit(NULL);
 }
 
@@ -124,12 +128,13 @@ Function to synchronize terminal and log file output
 */
 void output_str(char *s)
 {
-      time_t now;
-      now = time(NULL);
-      struct tm *time_now = localtime(&now);
+      time(&now);
+      time_now = localtime(&now);
       // log file output
+      log_ptr = fopen("log.txt", "a");
       fprintf(log_ptr, "%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
       fprintf(log_ptr, "%s", s);
+      fclose(log_ptr);
       // terminal output
       printf("%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
       printf("%s", s);
