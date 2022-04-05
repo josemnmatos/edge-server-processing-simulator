@@ -28,6 +28,7 @@ void output_str(char *s);
 int main(int argc, char const *argv[])
 {
       /* code */
+      output_str("OFFLOAD SIMULATOR STARTING\n");
       pthread_t thread1;
       pthread_create(&thread1, NULL, system_manager, NULL);
       pthread_join(thread1, NULL);
@@ -41,6 +42,7 @@ void *system_manager(void *p)
       // open config file
       config_ptr = fopen("config.txt", "r");
       get_running_config(config_ptr);
+      output_str("CONFIGURATION SET\n");
       fclose(config_ptr);
       fclose(log_ptr);
       pthread_exit(NULL);
@@ -126,7 +128,9 @@ void output_str(char *s)
       now = time(NULL);
       struct tm *time_now = localtime(&now);
       // log file output
-      fprintf(log_ptr, s);
+      fprintf(log_ptr, "%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
+      fprintf(log_ptr, "%s", s);
       // terminal output
-      printf(s);
+      printf("%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
+      printf("%s", s);
 }
