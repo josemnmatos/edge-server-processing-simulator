@@ -6,21 +6,36 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include "edge_server.h"
 
 #define PIPE_NAME "TASK_PIPE"
-int EDGE_SERVER_NUMBER;
-int QUEUE_POS;
-int MAX_WAIT;
-struct edge_server *EDGE_SERVERS = NULL;
+
+
+int shmid;
+
+
+
 FILE *log_ptr, *config_ptr;
 
-void *system_manager(void *p);
+typedef struct {
+      int EDGE_SERVER_NUMBER;
+      int QUEUE_POS;
+      int MAX_WAIT;
+      struct edge_server *EDGE_SERVERS;
+}shared_memory;
+
+shared_memory *SM;
+
+void system_manager(shared_memory * SM);
 void *task_manager(void *p);
 void *edge_server_process(void *p);
 void *monitor(void *p);
 void *maintenance_manager(void *p);
-void get_running_config(FILE *ptr);
+void get_running_config(FILE *ptr, shared_memory  *SM);
 void show_server_info(struct edge_server s);
 void output_str(char *s);
 void end_sim();
@@ -31,30 +46,32 @@ int main()
 {
       /* code */
       output_str("OFFLOAD SIMULATOR STARTING\n");
-      pthread_t thread1;
-      pthread_create(&thread1, NULL, system_manager, NULL);
-      pthread_join(thread1, NULL);
+      //create Shared Memory
+      shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0700);
+      SM = (shared_memory*) shmat(shmid, NULL, 0);
+
+      system_manager(SM);
+
       end_sim();
       return 0;
 }
 
-void *system_manager(void *p)
+void system_manager(shared_memory * SM)
 {
       // create log file
       log_ptr = fopen("log.txt", "w");
       fclose(log_ptr);
       // open config file
       config_ptr = fopen("config.txt", "r");
-      get_running_config(config_ptr);
+      get_running_config(config_ptr, SM);
       output_str("CONFIGURATION SET\n");
-      // output_str("CONFIGURATION SET\n");
-      pthread_exit(NULL);
+
 }
 
 /*
 Function to handle the config.txt file and define running variables
 */
-void get_running_config(FILE *ptr)
+void get_running_config(FILE *ptr, shared_memory  *SM)
 {
       char c[30];
       // file doesnt exist or path is wrong
@@ -81,15 +98,15 @@ void get_running_config(FILE *ptr)
             else
             {
                   // define general configs
-                  QUEUE_POS = configs[0];
-                  MAX_WAIT = configs[1];
-                  EDGE_SERVER_NUMBER = configs[2];
-                  EDGE_SERVERS = calloc(EDGE_SERVER_NUMBER, sizeof(struct edge_server));
+                  SM->QUEUE_POS = configs[0];
+                  SM->MAX_WAIT = configs[1];
+                  SM->EDGE_SERVER_NUMBER = configs[2];
+                  SM->EDGE_SERVERS = calloc(SM->EDGE_SERVER_NUMBER, sizeof(struct edge_server));
                   char *server_name;
                   int vCPU_capacities[2];
                   int x;
                   // define edge servers one by one
-                  for (x = 0; x < EDGE_SERVER_NUMBER; x++)
+                  for (x = 0; x < SM->EDGE_SERVER_NUMBER; x++)
                   {
                         fgets(c, 30, ptr);
                         // removes newline
@@ -102,13 +119,13 @@ void get_running_config(FILE *ptr)
                         token = strtok(NULL, ",");
                         vCPU_capacities[1] = atoi(token);
                         // define server characteristics
-                        strncpy(EDGE_SERVERS[x].name, server_name, 20);
-                        EDGE_SERVERS[x].vCPU_1_capacity = vCPU_capacities[0];
-                        EDGE_SERVERS[x].vCPU_2_capacity = vCPU_capacities[1];
+                        strncpy(SM->EDGE_SERVERS[x].name, server_name, 20);
+                        SM->EDGE_SERVERS[x].vCPU_1_capacity = vCPU_capacities[0];
+                        SM->EDGE_SERVERS[x].vCPU_2_capacity = vCPU_capacities[1];
                         // notify that server is ready
                         char a[] = " READY\n";
                         char b[40];
-                        strncpy(b, EDGE_SERVERS[x].name, 40);
+                        strncpy(b, SM->EDGE_SERVERS[x].name, 40);
                         strcat(b, a);
                         output_str(b);
                   }
@@ -147,7 +164,9 @@ void end_sim()
 {
       output_str("SIMULATOR CLOSING\n");
       // code to clear
-      free(EDGE_SERVERS);
+      free(SM->EDGE_SERVERS);
+      if (shmid >=0)
+            shmctl(shmid, IPC_RMID, NULL);
       output_str("SIMULATOR CLOSED\n");
       exit(1);
 }
