@@ -12,10 +12,8 @@
 int EDGE_SERVER_NUMBER;
 int QUEUE_POS;
 int MAX_WAIT;
-FILE *log_ptr;
-FILE *config_ptr;
-time_t now;
-struct tm *time_now;
+struct edge_server *EDGE_SERVERS = NULL;
+FILE *log_ptr, *config_ptr;
 
 void *system_manager(void *p);
 void *task_manager(void *p);
@@ -25,6 +23,7 @@ void *maintenance_manager(void *p);
 void get_running_config(FILE *ptr);
 void show_server_info(struct edge_server s);
 void output_str(char *s);
+void end_sim();
 
 // compile with : gcc -Wall -pthread main.c edge_server.h -o test
 
@@ -35,6 +34,7 @@ int main()
       pthread_t thread1;
       pthread_create(&thread1, NULL, system_manager, NULL);
       pthread_join(thread1, NULL);
+      end_sim();
       return 0;
 }
 
@@ -84,14 +84,10 @@ void get_running_config(FILE *ptr)
                   QUEUE_POS = configs[0];
                   MAX_WAIT = configs[1];
                   EDGE_SERVER_NUMBER = configs[2];
-                  printf("%d\n", QUEUE_POS);
-                  printf("%d\n", MAX_WAIT);
-                  printf("%d\n", EDGE_SERVER_NUMBER);
-                  struct edge_server EDGE_SERVERS[EDGE_SERVER_NUMBER];
+                  EDGE_SERVERS = calloc(EDGE_SERVER_NUMBER, sizeof(struct edge_server));
                   char *server_name;
                   int vCPU_capacities[2];
                   int x;
-                  printf("1\n");
                   // define edge servers one by one
                   for (x = 0; x < EDGE_SERVER_NUMBER; x++)
                   {
@@ -109,8 +105,12 @@ void get_running_config(FILE *ptr)
                         strncpy(EDGE_SERVERS[x].name, server_name, 20);
                         EDGE_SERVERS[x].vCPU_1_capacity = vCPU_capacities[0];
                         EDGE_SERVERS[x].vCPU_2_capacity = vCPU_capacities[1];
-                        //-----------------------
-                        show_server_info(EDGE_SERVERS[x]);
+                        // notify that server is ready
+                        char a[] = " READY\n";
+                        char b[40];
+                        strncpy(b, EDGE_SERVERS[x].name, 40);
+                        strcat(b, a);
+                        output_str(b);
                   }
             }
       }
@@ -127,6 +127,8 @@ Function to synchronize terminal and log file output
 */
 void output_str(char *s)
 {
+      time_t now;
+      struct tm *time_now;
       time(&now);
       time_now = localtime(&now);
       // log file output
@@ -136,4 +138,16 @@ void output_str(char *s)
       // terminal output
       printf("%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
       printf("%s", s);
+}
+
+/*
+Function to clear and free all things needed and end simulation
+*/
+void end_sim()
+{
+      output_str("SIMULATOR CLOSING\n");
+      // code to clear
+      free(EDGE_SERVERS);
+      output_str("SIMULATOR CLOSED\n");
+      exit(1);
 }
