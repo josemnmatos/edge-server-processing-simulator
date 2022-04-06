@@ -28,10 +28,10 @@ void output_str(char *s);
 
 // compile with : gcc -Wall -pthread main.c edge_server.h -o test
 
-int main(int argc, char const *argv[])
+int main()
 {
       /* code */
-      // output_str("OFFLOAD SIMULATOR STARTING\n");
+      output_str("OFFLOAD SIMULATOR STARTING\n");
       pthread_t thread1;
       pthread_create(&thread1, NULL, system_manager, NULL);
       pthread_join(thread1, NULL);
@@ -42,13 +42,12 @@ void *system_manager(void *p)
 {
       // create log file
       log_ptr = fopen("log.txt", "w");
-      output_str("OFFLOAD SIMULATOR STARTING\n");
       fclose(log_ptr);
       // open config file
       config_ptr = fopen("config.txt", "r");
       get_running_config(config_ptr);
+      output_str("CONFIGURATION SET\n");
       // output_str("CONFIGURATION SET\n");
-      fclose(config_ptr);
       pthread_exit(NULL);
 }
 
@@ -134,7 +133,6 @@ void output_str(char *s)
       log_ptr = fopen("log.txt", "a");
       fprintf(log_ptr, "%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
       fprintf(log_ptr, "%s", s);
-      fclose(log_ptr);
       // terminal output
       printf("%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
       printf("%s", s);
