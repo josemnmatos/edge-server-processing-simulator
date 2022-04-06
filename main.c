@@ -10,12 +10,14 @@
 #include <sys/wait.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <semaphore.h>
 #include "edge_server.h"
 
 #define PIPE_NAME "TASK_PIPE"
 
 
 int shmid;
+sem_t *mutex;
 
 
 
@@ -50,7 +52,13 @@ int main()
       shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0700);
       SM = (shared_memory*) shmat(shmid, NULL, 0);
 
+      //create semaphore
+      mutex = (sem_t*)malloc(sizeof(sem_t*));
+      sem_init(mutex,1,1);
+      sem_wait(mutex);
       system_manager(SM);
+      sem_post(mutex);
+
 
       end_sim();
       return 0;
@@ -167,6 +175,8 @@ void end_sim()
       free(SM->EDGE_SERVERS);
       if (shmid >=0)
             shmctl(shmid, IPC_RMID, NULL);
+      if (mutex >= 0)
+            sem_close(mutex);
       output_str("SIMULATOR CLOSED\n");
       exit(1);
 }
