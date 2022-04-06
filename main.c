@@ -11,7 +11,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <semaphore.h>
-#include "edge_server.h"
+#include "simulation_structs.h"
 
 #define PIPE_NAME "TASK_PIPE"
 #define NUM_PROCESS_INI 3
@@ -19,17 +19,8 @@
 int shmid;
 sem_t *mutex;
 
+// pointers for log and config files
 FILE *log_ptr, *config_ptr;
-
-typedef struct
-{
-      int EDGE_SERVER_NUMBER;
-      int QUEUE_POS;
-      int MAX_WAIT;
-      struct edge_server *EDGE_SERVERS;
-      pid_t c_pid[NUM_PROCESS_INI];
-      pid_t edge_pid[];
-} shared_memory;
 
 shared_memory *SM;
 
@@ -45,7 +36,7 @@ void show_server_info(struct edge_server s);
 void output_str(char *s);
 void end_sim();
 
-// compile with : gcc -Wall -pthread main.c edge_server.h -o test
+// compile with : gcc -Wall -pthread main.c simulation_structs.h -o test
 
 int main()
 {
