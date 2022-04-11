@@ -21,3 +21,9 @@ typedef struct
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
 } shared_memory;
+
+typedef struct {
+        char *request;
+        int priority;
+        struct node* nextNode;
+}node;
