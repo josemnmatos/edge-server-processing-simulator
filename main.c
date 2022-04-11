@@ -11,55 +11,76 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <semaphore.h>
-#include "simulation_structs.h"
+#include "edge_server.h"
 
 #define PIPE_NAME "TASK_PIPE"
 #define NUM_PROCESS_INI 3
 
+
 int shmid;
 sem_t *mutex;
 
-// pointers for log and config files
+
+
 FILE *log_ptr, *config_ptr;
+
+typedef struct {
+      int EDGE_SERVER_NUMBER;
+      int QUEUE_POS;
+      int MAX_WAIT;
+      struct edge_server *EDGE_SERVERS;
+      pid_t c_pid[NUM_PROCESS_INI];
+      pid_t *edge_pid;
+      pthread_t taskmanager[2];
+}shared_memory;
 
 shared_memory *SM;
 
-void system_manager(shared_memory *SM);
-void task_manager(shared_memory *SM);
+void system_manager();
+void task_manager(shared_memory  *SM);
 void *task_manager_scheduler(void *p);
 void *task_manager_dispatcher(void *p);
-void *edge_server_process(void *p);
+void edge_server_process(shared_memory * SM);
 void monitor();
 void maintenance_manager();
-void get_running_config(FILE *ptr, shared_memory *SM);
+void get_running_config(FILE *ptr, shared_memory  *SM);
 void show_server_info(struct edge_server s);
+void sigint();
 void output_str(char *s);
 void end_sim();
 
-// compile with : gcc -Wall -pthread main.c simulation_structs.h -o test
+// compile with : gcc -Wall -pthread main.c edge_server.h -o test
 
 int main()
 {
       /* code */
       output_str("OFFLOAD SIMULATOR STARTING\n");
-      // create Shared Memory
-      shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0700);
-      SM = (shared_memory *)shmat(shmid, NULL, 0);
+      
 
-      // create semaphore
-      mutex = (sem_t *)malloc(sizeof(sem_t *));
-      sem_init(mutex, 1, 1);
+      //create semaphore ?? se calhar passar para dentro de sytem_manager
+      mutex = (sem_t*)malloc(sizeof(sem_t*));
+      sem_init(mutex,1,1);
 
-      // system manager
-      system_manager(SM);
 
-      // end + cleanup
+     //system manager 
+      system_manager();
+   
+      
+      //end + cleanup acho que nao é preciso aqui so no sigint
       end_sim();
       return 0;
 }
 
-void system_manager(shared_memory *SM)
+void system_manager()
 {
+      //capture sigint
+      signal(SIGINT, sigint);
+
+
+      //create shared memory
+      shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0700);
+      SM = (shared_memory*) shmat(shmid, NULL, 0);
+
       // create log file
       log_ptr = fopen("log.txt", "w");
       fclose(log_ptr);
@@ -70,50 +91,66 @@ void system_manager(shared_memory *SM)
       output_str("CONFIGURATION SET\n");
       sem_post(mutex);
 
-      // create the rest of the processes
-      if ((SM->c_pid[0] = fork()) == 0)
-      {
+
+      //create named pipe
+      if ((mkfifo(PIPE_NAME, O_CREAT|O_EXCL|0600)<0)){
+            output_str("CANNOT CREATE PIPE\n");
+            exit(0);
+      }
+
+      
+      
+
+
+      
+
+      //create the rest of the processes
+      if ((SM->c_pid[0] = fork()) == 0){
             output_str("PROCESS MONITOR CREATED\n");
             monitor();
             exit(0);
       }
-      if (SM->c_pid[0] == -1)
-      {
+      if (SM->c_pid[0] == -1){
             output_str("ERROR CREATING PROCESS MONITOR\n");
             exit(1);
       }
       sleep(1);
-
-      if ((SM->c_pid[1] = fork()) == 0)
-      {
+     
+      if ((SM->c_pid[1] = fork()) == 0){
             output_str("PROCESS TASK_MANAGER CREATED\n");
             task_manager(SM);
             exit(0);
       }
-      if (SM->c_pid[1] == -1)
-      {
+      if (SM->c_pid[1] == -1){
             output_str("ERROR CREATING PROCESS TASK_MANAGER\n");
             exit(2);
       }
       sleep(1);
-      if ((SM->c_pid[2] = fork()) == 0)
-      {
+      if ((SM-> c_pid[2] = fork())== 0){
             output_str("PROCESS MAINTENANCE_MANAGER CREATED\n");
             maintenance_manager();
             exit(0);
       }
-      if (SM->c_pid[2] == -1)
-      {
+      if (SM->c_pid[2] == -1){
             output_str("ERROR CREATING MAINTENANCE_MANAGER\n");
             exit(3);
       }
       sleep(1);
+
+      
+
+
+      
+
+
+
+
 }
 
 /*
 Function to handle the config.txt file and define running variables
 */
-void get_running_config(FILE *ptr, shared_memory *SM)
+void get_running_config(FILE *ptr, shared_memory  *SM)
 {
       char c[30];
       // file doesnt exist or path is wrong
@@ -206,18 +243,18 @@ void end_sim()
 {
       output_str("SIMULATOR CLOSING\n");
       // code to clear
-      int i = 0;
+      int i=0;
       while (i < (1 + NUM_PROCESS_INI))
-            kill(SM->c_pid[i++], 0);
-      while (wait(NULL) != -1)
-            ;
-      int f = 0;
+		kill(SM->c_pid[i++],0);
+	while (wait(NULL) != -1);
+      int f=0;
       while (f < (1 + SM->EDGE_SERVER_NUMBER))
-            kill(SM->edge_pid[f++], 0);
-      while (wait(NULL) != -1)
-            ;
+		kill(SM->edge_pid[f++],0);
+	while (wait(NULL) != -1);
       free(SM->EDGE_SERVERS);
-      if (shmid >= 0)
+      //n sei se e preciso mas como e com o calloc
+      free(SM->edge_pid);
+      if (shmid >=0)
             shmctl(shmid, IPC_RMID, NULL);
       if (mutex >= 0)
             sem_close(mutex);
@@ -225,17 +262,49 @@ void end_sim()
       exit(1);
 }
 
-void monitor()
-{
+void monitor(){
       printf("monitor\n");
 }
 
-void task_manager(shared_memory *SM)
-{
-      printf("task manager\n");
+void task_manager(shared_memory  *SM){
+      //create a thread for each job
+      pthread_create(&SM->taskmanager[0], NULL, task_manager_scheduler, NULL);
+      pthread_create(&SM->taskmanager[1], NULL, task_manager_dispatcher, NULL);
+
+
+      
+
+      SM->edge_pid = (pid_t*)calloc(SM->EDGE_SERVER_NUMBER, sizeof (pid_t));
+
+      //create SM->EDGE_SERVER_NUMBER number of pipes
+
+
+
+      for(int i = 0; i < SM->EDGE_SERVER_NUMBER; i++){
+            if((SM->edge_pid[i++] = fork()) == 0){
+                  //do what edge server do 
+                  edge_server_process(SM);
+
+            }
+            else{
+                  output_str("ERROR CREATING EDGE SERVER\n");
+            }
+      }
+
+
+      //wait for the threads to finish
+      pthread_join(SM->taskmanager[0], NULL);
+      pthread_join(SM->taskmanager[1], NULL);
 }
 
-void maintenance_manager()
-{
+void maintenance_manager(){
       printf("maintenance manager\n");
+
+}
+
+
+
+void sigint(){
+      output_str("^C was pressed. Closing the program");
+      end_sim();
 }
