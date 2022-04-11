@@ -11,7 +11,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <semaphore.h>
-#include "edge_server.h"
+#include "simulation_structs.h"
 
 #define PIPE_NAME "TASK_PIPE"
 #define NUM_PROCESS_INI 3
