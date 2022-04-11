@@ -24,15 +24,6 @@ sem_t *mutex;
 
 FILE *log_ptr, *config_ptr;
 
-typedef struct {
-      int EDGE_SERVER_NUMBER;
-      int QUEUE_POS;
-      int MAX_WAIT;
-      struct edge_server *EDGE_SERVERS;
-      pid_t c_pid[NUM_PROCESS_INI];
-      pid_t *edge_pid;
-      pthread_t taskmanager[2];
-}shared_memory;
 
 shared_memory *SM;
 
