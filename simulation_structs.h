@@ -17,6 +17,7 @@ typedef struct
         int QUEUE_POS;
         int MAX_WAIT;
         struct edge_server *EDGE_SERVERS;
+        pid_t taskmanager[2];
         pid_t c_pid[NUM_PROCESS_INI];
-        pid_t edge_pid[];
+        pid_t *edge_pid;
 } shared_memory;
