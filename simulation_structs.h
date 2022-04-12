@@ -4,26 +4,27 @@
 
 #define NUM_PROCESS_INI 3
 
-struct edge_server
+typedef struct
 {
         char name[20];
         int vCPU_1_capacity;
         int vCPU_2_capacity;
-};
+} edge_server;
 
 typedef struct
 {
         int EDGE_SERVER_NUMBER;
         int QUEUE_POS;
         int MAX_WAIT;
-        struct edge_server *EDGE_SERVERS;
-        pid_t taskmanager[2];
+        edge_server *EDGE_SERVERS;
+        pthread_t taskmanager[2];
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
 } shared_memory;
 
-typedef struct {
+typedef struct
+{
         char *request;
         int priority;
-        struct node* nextNode;
-}node;
+        struct node *nextNode;
+} node;

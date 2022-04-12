@@ -12,30 +12,28 @@
 #include <sys/shm.h>
 #include <semaphore.h>
 #include "simulation_structs.h"
+#include <sys/stat.h>
+#include <errno.h>
 
 #define PIPE_NAME "TASK_PIPE"
 #define NUM_PROCESS_INI 3
 
-
 int shmid;
 sem_t *mutex;
 
-
-
 FILE *log_ptr, *config_ptr;
-
 
 shared_memory *SM;
 
 void system_manager();
-void task_manager(shared_memory  *SM);
+void task_manager(shared_memory *SM);
 void *task_manager_scheduler(void *p);
 void *task_manager_dispatcher(void *p);
-void edge_server_process(shared_memory * SM);
+void edge_server_process(shared_memory *SM);
 void monitor();
 void maintenance_manager();
-void get_running_config(FILE *ptr, shared_memory  *SM);
-void show_server_info(struct edge_server s);
+void get_running_config(FILE *ptr, shared_memory *SM);
+void show_server_info(edge_server s);
 void sigint();
 void output_str(char *s);
 void end_sim();
@@ -46,31 +44,27 @@ int main()
 {
       /* code */
       output_str("OFFLOAD SIMULATOR STARTING\n");
-      
 
-      //create semaphore ?? se calhar passar para dentro de sytem_manager
-      mutex = (sem_t*)malloc(sizeof(sem_t*));
-      sem_init(mutex,1,1);
+      // create semaphore ?? se calhar passar para dentro de sytem_manager
+      mutex = (sem_t *)malloc(sizeof(sem_t *));
+      sem_init(mutex, 1, 1);
 
-
-     //system manager 
+      // system manager
       system_manager();
-   
-      
-      //end + cleanup acho que nao é preciso aqui so no sigint
+
+      // end + cleanup acho que nao é preciso aqui so no sigint
       end_sim();
       return 0;
 }
 
 void system_manager()
 {
-      //capture sigint
+      // capture sigint
       signal(SIGINT, sigint);
 
-
-      //create shared memory
+      // create shared memory
       shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0700);
-      SM = (shared_memory*) shmat(shmid, NULL, 0);
+      SM = (shared_memory *)shmat(shmid, NULL, 0);
 
       // create log file
       log_ptr = fopen("log.txt", "w");
@@ -82,66 +76,59 @@ void system_manager()
       output_str("CONFIGURATION SET\n");
       sem_post(mutex);
 
-
-      //create named pipe
-      if ((mkfifo(PIPE_NAME, O_CREAT|O_EXCL|0600)<0)){
+      // create named pipe
+      /*
+      if ((mkfifo(PIPE_NAME, O_CREAT | O_EXCL | 0600) < 0) && (errno != EEXIST))
+      {
             output_str("CANNOT CREATE PIPE\n");
             exit(0);
       }
+      */
 
-      
-      
-
-
-      
-
-      //create the rest of the processes
-      if ((SM->c_pid[0] = fork()) == 0){
+      // create the rest of the processes
+      if ((SM->c_pid[0] = fork()) == 0)
+      {
             output_str("PROCESS MONITOR CREATED\n");
             monitor();
             exit(0);
       }
-      if (SM->c_pid[0] == -1){
+      if (SM->c_pid[0] == -1)
+      {
             output_str("ERROR CREATING PROCESS MONITOR\n");
             exit(1);
       }
       sleep(1);
-     
-      if ((SM->c_pid[1] = fork()) == 0){
+
+      if ((SM->c_pid[1] = fork()) == 0)
+      {
             output_str("PROCESS TASK_MANAGER CREATED\n");
             task_manager(SM);
             exit(0);
       }
-      if (SM->c_pid[1] == -1){
+      if (SM->c_pid[1] == -1)
+      {
             output_str("ERROR CREATING PROCESS TASK_MANAGER\n");
             exit(2);
       }
       sleep(1);
-      if ((SM-> c_pid[2] = fork())== 0){
+      if ((SM->c_pid[2] = fork()) == 0)
+      {
             output_str("PROCESS MAINTENANCE_MANAGER CREATED\n");
             maintenance_manager();
             exit(0);
       }
-      if (SM->c_pid[2] == -1){
+      if (SM->c_pid[2] == -1)
+      {
             output_str("ERROR CREATING MAINTENANCE_MANAGER\n");
             exit(3);
       }
       sleep(1);
-
-      
-
-
-      
-
-
-
-
 }
 
 /*
 Function to handle the config.txt file and define running variables
 */
-void get_running_config(FILE *ptr, shared_memory  *SM)
+void get_running_config(FILE *ptr, shared_memory *SM)
 {
       char c[30];
       // file doesnt exist or path is wrong
@@ -171,7 +158,7 @@ void get_running_config(FILE *ptr, shared_memory  *SM)
                   SM->QUEUE_POS = configs[0];
                   SM->MAX_WAIT = configs[1];
                   SM->EDGE_SERVER_NUMBER = configs[2];
-                  SM->EDGE_SERVERS = calloc(SM->EDGE_SERVER_NUMBER, sizeof(struct edge_server));
+                  SM->EDGE_SERVERS = calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
                   char *server_name;
                   int vCPU_capacities[2];
                   int x;
@@ -204,7 +191,7 @@ void get_running_config(FILE *ptr, shared_memory  *SM)
       fclose(ptr);
 }
 
-void show_server_info(struct edge_server s)
+void show_server_info(edge_server s)
 {
       printf("Name: %s\nvCPU1 Capacity:%d \nvCPU1 Capacity:%d\n", s.name, s.vCPU_1_capacity, s.vCPU_2_capacity);
 }
@@ -234,18 +221,19 @@ void end_sim()
 {
       output_str("SIMULATOR CLOSING\n");
       // code to clear
-      int i=0;
+      int i = 0;
       while (i < (1 + NUM_PROCESS_INI))
-		kill(SM->c_pid[i++],0);
-	while (wait(NULL) != -1);
-      int f=0;
+            kill(SM->c_pid[i++], 0);
+      while (wait(NULL) != -1)
+            ;
+      int f = 0;
       while (f < (1 + SM->EDGE_SERVER_NUMBER))
-		kill(SM->edge_pid[f++],0);
-	while (wait(NULL) != -1);
+            kill(SM->edge_pid[f++], 0);
+      while (wait(NULL) != -1)
+            ;
       free(SM->EDGE_SERVERS);
-      //n sei se e preciso mas como e com o calloc
-      free(SM->edge_pid);
-      if (shmid >=0)
+      // n sei se e preciso mas como e com o calloc
+      if (shmid >= 0)
             shmctl(shmid, IPC_RMID, NULL);
       if (mutex >= 0)
             sem_close(mutex);
@@ -253,49 +241,64 @@ void end_sim()
       exit(1);
 }
 
-void monitor(){
+void monitor()
+{
       printf("monitor\n");
 }
 
-void task_manager(shared_memory  *SM){
-      //create a thread for each job
+void task_manager(shared_memory *SM)
+{
+      // create a thread for each job
       pthread_create(&SM->taskmanager[0], NULL, task_manager_scheduler, NULL);
       pthread_create(&SM->taskmanager[1], NULL, task_manager_dispatcher, NULL);
 
+      SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
 
-      
+      // create SM->EDGE_SERVER_NUMBER number of pipes
 
-      SM->edge_pid = (pid_t*)calloc(SM->EDGE_SERVER_NUMBER, sizeof (pid_t));
-
-      //create SM->EDGE_SERVER_NUMBER number of pipes
-
-
-
-      for(int i = 0; i < SM->EDGE_SERVER_NUMBER; i++){
-            if((SM->edge_pid[i++] = fork()) == 0){
-                  //do what edge server do 
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            pid_t current_pid = SM->edge_pid[i++];
+            if ((current_pid = fork()) == 0)
+            {
+                  // do what edge server do
                   edge_server_process(SM);
-
             }
-            else{
+            else if (current_pid == -1)
+            {
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
       }
 
-
-      //wait for the threads to finish
+      // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
       pthread_join(SM->taskmanager[1], NULL);
 }
 
-void maintenance_manager(){
-      printf("maintenance manager\n");
-
+void *task_manager_scheduler(void *p)
+{
+      printf("task_manager_scheduler working\n");
+      pthread_exit(NULL);
 }
 
+void *task_manager_dispatcher(void *p)
+{
+      printf("task_manager_dispatcher working\n");
+      pthread_exit(NULL);
+}
 
+void edge_server_process(shared_memory *SM)
+{
+      printf("edge server process working\n");
+}
 
-void sigint(){
+void maintenance_manager()
+{
+      printf("maintenance manager\n");
+}
+
+void sigint()
+{
       output_str("^C was pressed. Closing the program");
       end_sim();
 }
