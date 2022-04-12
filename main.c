@@ -253,6 +253,7 @@ void task_manager(shared_memory *SM)
       pthread_create(&SM->taskmanager[1], NULL, task_manager_dispatcher, NULL);
 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
+      SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
 
       // create SM->EDGE_SERVER_NUMBER number of pipes
 
@@ -289,7 +290,18 @@ void *task_manager_dispatcher(void *p)
 
 void edge_server_process(shared_memory *SM)
 {
+      pthread_t vCPU[2];
+
+      pthread_create(&vCPU[0], NULL, task_manager_scheduler, NULL);
+      pthread_create(&vCPU[1], NULL, task_manager_dispatcher, NULL);
+
       printf("edge server process working\n");
+
+
+      pthread_join(vCPU[0], NULL);
+      pthread_join(vCPU[0], NULL);
+
+      
 }
 
 void maintenance_manager()
