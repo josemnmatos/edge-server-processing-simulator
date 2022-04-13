@@ -19,7 +19,8 @@
 #define NUM_PROCESS_INI 3
 
 int shmid;
-sem_t *mutex;
+sem_t *semaphore;
+pthread_mutex_t vcpu_mutex;
 
 FILE *log_ptr, *config_ptr;
 
@@ -45,7 +46,7 @@ FALTA:
 -(preliminar)Criação	da	thread	scheduler e	gestão	do	escalonamento	das	tarefas
 -Criação	das	threads que	simulam	os	vCPUs
 -(preliminar)Diagrama	com	a	arquitetura	e	mecanismos	de	sincronização
--(preliminar)Sincronização	com	mecanismos	adequados	 (semáforos,	mutexes ou	 variáveis	de
+-(preliminar)Sincronização	com	mecanismos	adequados	 (semáforos,	semaphorees ou	 variáveis	de
 condição)
 */
 
@@ -53,12 +54,15 @@ condição)
 
 int main()
 {
+      // create log file
+      log_ptr = fopen("log.txt", "w");
+
       /* code */
       output_str("OFFLOAD SIMULATOR STARTING\n");
 
       // create semaphore ?? se calhar passar para dentro de sytem_manager
-      mutex = (sem_t *)malloc(sizeof(sem_t *));
-      sem_init(mutex, 1, 1);
+      semaphore = (sem_t *)malloc(sizeof(sem_t *));
+      sem_init(semaphore, 1, 1);
 
       // system manager
       system_manager();
@@ -77,15 +81,12 @@ void system_manager()
       shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0700);
       SM = (shared_memory *)shmat(shmid, NULL, 0);
 
-      // create log file
-      log_ptr = fopen("log.txt", "w");
-      fclose(log_ptr);
       // open config file and get the running config
-      sem_wait(mutex);
+      sem_wait(semaphore);
       config_ptr = fopen("config.txt", "r");
       get_running_config(config_ptr, SM);
       output_str("CONFIGURATION SET\n");
-      sem_post(mutex);
+      sem_post(semaphore);
 
       // create named pipe
       /*
@@ -217,7 +218,6 @@ void output_str(char *s)
       time(&now);
       time_now = localtime(&now);
       // log file output
-      log_ptr = fopen("log.txt", "a");
       fprintf(log_ptr, "%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
       fprintf(log_ptr, "%s", s);
       // terminal output
@@ -246,15 +246,16 @@ void end_sim()
       //  n sei se e preciso mas como e com o calloc
       if (shmid >= 0)
             shmctl(shmid, IPC_RMID, NULL);
-      if (mutex >= 0)
-            sem_close(mutex);
+      if (semaphore >= 0)
+            sem_close(semaphore);
       output_str("SIMULATOR CLOSED\n");
+      fclose(log_ptr);
       exit(1);
 }
 
 void monitor()
 {
-      printf("monitor\n");
+      output_str("MONITOR WORKING\n");
 }
 
 void task_manager(shared_memory *SM)
@@ -289,13 +290,13 @@ void task_manager(shared_memory *SM)
 
 void *task_manager_scheduler(void *p)
 {
-      printf("task_manager_scheduler working\n");
+      output_str("TASK_MANAGER_SCHEDULER WORKING\n");
       pthread_exit(NULL);
 }
 
 void *task_manager_dispatcher(void *p)
 {
-      printf("task_manager_dispatcher working\n");
+      output_str("TASK_MANAGER_DISPATCHER WORKING\n");
       pthread_exit(NULL);
 }
 
@@ -311,15 +312,17 @@ void edge_server_process(shared_memory *SM, int server_number)
 
 void *vCPU_task(void *p)
 {
+      pthread_mutex_lock(&vcpu_mutex);
       char msg[60];
       sprintf(msg, "VPCU TASK COMPLETE BY THREAD %ld\n", pthread_self());
       output_str(msg);
+      pthread_mutex_unlock(&vcpu_mutex);
       pthread_exit(NULL);
 }
 
 void maintenance_manager()
 {
-      printf("maintenance manager\n");
+      output_str("MAINTENANCE MANAGER WORKING\n");
 }
 
 void sigint()
