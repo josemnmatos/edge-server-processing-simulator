@@ -7,6 +7,7 @@
 typedef struct
 {
         char name[20];
+        pthread_t vCPU[2];
         int vCPU_1_capacity;
         int vCPU_2_capacity;
         int level_of_performance;

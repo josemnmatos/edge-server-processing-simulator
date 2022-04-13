@@ -29,7 +29,7 @@ void system_manager();
 void task_manager(shared_memory *SM);
 void *task_manager_scheduler(void *p);
 void *task_manager_dispatcher(void *p);
-void edge_server_process(shared_memory *SM);
+void edge_server_process(shared_memory *SM, int server_number);
 void monitor();
 void maintenance_manager();
 void get_running_config(FILE *ptr, shared_memory *SM);
@@ -37,6 +37,17 @@ void show_server_info(edge_server s);
 void sigint();
 void output_str(char *s);
 void end_sim();
+void *vCPU_task(void *p);
+
+/*
+FALTA:
+-Criar	os	processos	Edge	Server de	acordo	com	as	configurações
+-(preliminar)Criação	da	thread	scheduler e	gestão	do	escalonamento	das	tarefas
+-Criação	das	threads que	simulam	os	vCPUs
+-(preliminar)Diagrama	com	a	arquitetura	e	mecanismos	de	sincronização
+-(preliminar)Sincronização	com	mecanismos	adequados	 (semáforos,	mutexes ou	 variáveis	de
+condição)
+*/
 
 // compile with : gcc -Wall -pthread main.c edge_server.h -o test
 
@@ -231,8 +242,8 @@ void end_sim()
             kill(SM->edge_pid[f++], 0);
       while (wait(NULL) != -1)
             ;
-      free(SM->EDGE_SERVERS);
-      // n sei se e preciso mas como e com o calloc
+      // free(SM->EDGE_SERVERS);
+      //  n sei se e preciso mas como e com o calloc
       if (shmid >= 0)
             shmctl(shmid, IPC_RMID, NULL);
       if (mutex >= 0)
@@ -263,7 +274,7 @@ void task_manager(shared_memory *SM)
             if ((current_pid = fork()) == 0)
             {
                   // do what edge server do
-                  edge_server_process(SM);
+                  edge_server_process(SM, i);
             }
             else if (current_pid == -1)
             {
@@ -288,20 +299,22 @@ void *task_manager_dispatcher(void *p)
       pthread_exit(NULL);
 }
 
-void edge_server_process(shared_memory *SM)
+void edge_server_process(shared_memory *SM, int server_number)
 {
-      pthread_t vCPU[2];
+      // creates threads for each cpu
+      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, vCPU_task, NULL);
+      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, vCPU_task, NULL);
 
-      pthread_create(&vCPU[0], NULL, task_manager_scheduler, NULL);
-      pthread_create(&vCPU[1], NULL, task_manager_dispatcher, NULL);
+      pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
+      pthread_join(SM->EDGE_SERVERS[server_number].vCPU[1], NULL);
+}
 
-      printf("edge server process working\n");
-
-
-      pthread_join(vCPU[0], NULL);
-      pthread_join(vCPU[0], NULL);
-
-      
+void *vCPU_task(void *p)
+{
+      char msg[60];
+      sprintf(msg, "VPCU TASK COMPLETE BY THREAD %ld\n", pthread_self());
+      output_str(msg);
+      pthread_exit(NULL);
 }
 
 void maintenance_manager()
