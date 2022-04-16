@@ -84,16 +84,17 @@ void system_manager(const char *config_file)
       SM = (shared_memory *)shmat(shmid, NULL, 0);
 
       // open config file and get the running config
-      sem_wait(semaphore);
+      
       FILE *config_ptr = fopen(config_file, "r");
       if (config_ptr == NULL)
       {
             output_str("ERROR: CAN'T OPEN FILE\n");
       }
-
+      sem_wait(semaphore);
       get_running_config(config_ptr, SM);
-      output_str("CONFIGURATION SET\n");
       sem_post(semaphore);
+      output_str("CONFIGURATION SET\n");
+      
 
       // create named pipe
       /*
@@ -273,11 +274,13 @@ void monitor()
 void task_manager(shared_memory *SM)
 {
       // create a thread for each job
+      sem_wait(semaphore);
       pthread_create(&SM->taskmanager[0], NULL, task_manager_scheduler, NULL);
       pthread_create(&SM->taskmanager[1], NULL, task_manager_dispatcher, NULL);
 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
+      sem_post(semaphore);
 
       // create SM->EDGE_SERVER_NUMBER number of pipes
 
@@ -315,8 +318,10 @@ void *task_manager_dispatcher(void *p)
 void edge_server_process(shared_memory *SM, int server_number)
 {
       // creates threads for each cpu
+      sem_wait(semaphore);
       pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, vCPU_task, NULL);
       pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, vCPU_task, NULL);
+      sem_post(semaphore);
 
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[1], NULL);
