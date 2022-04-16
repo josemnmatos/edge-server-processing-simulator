@@ -18,15 +18,7 @@
 #define PIPE_NAME "TASK_PIPE"
 #define NUM_PROCESS_INI 3
 
-int shmid;
-sem_t *semaphore;
-pthread_mutex_t vcpu_mutex;
-
-FILE *log_ptr, *config_ptr;
-
-shared_memory *SM;
-
-void system_manager();
+void system_manager(const char *config_file);
 void task_manager(shared_memory *SM);
 void *task_manager_scheduler(void *p);
 void *task_manager_dispatcher(void *p);
@@ -40,6 +32,12 @@ void output_str(char *s);
 void end_sim();
 void *vCPU_task(void *p);
 
+int shmid;
+shared_memory *SM;
+sem_t *semaphore;
+pthread_mutex_t vcpu_mutex, sm_mutex;
+FILE *log_ptr, *config_ptr;
+
 /*
 FALTA:
 -Criar	os	processos	Edge	Server de	acordo	com	as	configurações
@@ -51,28 +49,32 @@ condição)
 */
 
 // compile with : gcc -Wall -pthread main.c edge_server.h -o test
-
-int main()
+int main(int argc, char *argv[])
 {
       // create log file
       log_ptr = fopen("log.txt", "w");
-
-      /* code */
       output_str("OFFLOAD SIMULATOR STARTING\n");
+
+      // check arguments
+      if (argc != 2)
+      {
+            output_str("ERROR: WRONG PARAMETERS - $ offload_simulator {ficheiro de configuração}\n");
+            exit(0);
+      }
 
       // create semaphore ?? se calhar passar para dentro de sytem_manager
       semaphore = (sem_t *)malloc(sizeof(sem_t *));
       sem_init(semaphore, 1, 1);
 
       // system manager
-      system_manager();
+      system_manager(argv[1]);
 
       // end + cleanup acho que nao é preciso aqui so no sigint
       end_sim();
       return 0;
 }
 
-void system_manager()
+void system_manager(const char *config_file)
 {
       // capture sigint
       signal(SIGINT, sigint);
@@ -83,7 +85,12 @@ void system_manager()
 
       // open config file and get the running config
       sem_wait(semaphore);
-      config_ptr = fopen("config.txt", "r");
+      FILE *config_ptr = fopen(config_file, "r");
+      if (config_ptr == NULL)
+      {
+            output_str("ERROR: CAN'T OPEN FILE\n");
+      }
+
       get_running_config(config_ptr, SM);
       output_str("CONFIGURATION SET\n");
       sem_post(semaphore);
@@ -98,6 +105,8 @@ void system_manager()
       */
 
       // create the rest of the processes
+
+      // monitor process
       if ((SM->c_pid[0] = fork()) == 0)
       {
             output_str("PROCESS MONITOR CREATED\n");
@@ -111,6 +120,7 @@ void system_manager()
       }
       sleep(1);
 
+      // task_manager process
       if ((SM->c_pid[1] = fork()) == 0)
       {
             output_str("PROCESS TASK_MANAGER CREATED\n");
@@ -123,6 +133,8 @@ void system_manager()
             exit(2);
       }
       sleep(1);
+
+      // maintenance manager process
       if ((SM->c_pid[2] = fork()) == 0)
       {
             output_str("PROCESS MAINTENANCE_MANAGER CREATED\n");
@@ -226,7 +238,7 @@ void output_str(char *s)
 }
 
 /*
-Function to clear and free all things needed and end simulation
+Function to clear and free all elements needed and end simulation
 */
 void end_sim()
 {
