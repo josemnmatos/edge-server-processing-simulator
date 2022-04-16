@@ -245,6 +245,7 @@ void end_sim()
 {
       output_str("SIMULATOR CLOSING\n");
       // code to clear
+      sem_wait(semaphore);
       int i = 0;
       while (i < (1 + NUM_PROCESS_INI))
             kill(SM->c_pid[i++], 0);
@@ -257,6 +258,7 @@ void end_sim()
             ;
       // free(SM->EDGE_SERVERS);
       //  n sei se e preciso mas como e com o calloc
+      sem_post(semaphore);
       if (shmid >= 0)
             shmctl(shmid, IPC_RMID, NULL);
       if (semaphore >= 0)
