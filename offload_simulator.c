@@ -1,3 +1,7 @@
+/*
+João Maria Campos Donato 2020217878 
+José Miguel Norte de Matos 2020217977
+*/
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -111,11 +115,13 @@ void system_manager(const char *config_file)
       if ((SM->c_pid[0] = fork()) == 0)
       {
             output_str("PROCESS MONITOR CREATED\n");
+            
             monitor();
             exit(0);
       }
       if (SM->c_pid[0] == -1)
       {
+            
             output_str("ERROR CREATING PROCESS MONITOR\n");
             exit(1);
       }
@@ -125,12 +131,14 @@ void system_manager(const char *config_file)
       if ((SM->c_pid[1] = fork()) == 0)
       {
             output_str("PROCESS TASK_MANAGER CREATED\n");
+            
             task_manager(SM);
             exit(0);
       }
       if (SM->c_pid[1] == -1)
       {
             output_str("ERROR CREATING PROCESS TASK_MANAGER\n");
+            
             exit(2);
       }
       sleep(1);
@@ -139,12 +147,14 @@ void system_manager(const char *config_file)
       if ((SM->c_pid[2] = fork()) == 0)
       {
             output_str("PROCESS MAINTENANCE_MANAGER CREATED\n");
+            
             maintenance_manager();
             exit(0);
       }
       if (SM->c_pid[2] == -1)
       {
             output_str("ERROR CREATING MAINTENANCE_MANAGER\n");
+            
             exit(3);
       }
       sleep(1);
@@ -159,7 +169,8 @@ void get_running_config(FILE *ptr, shared_memory *SM)
       // file doesnt exist or path is wrong
       if (ptr == NULL)
       {
-            printf("Error opening configuration file.");
+            output_str("Error opening configuration file.");
+            
             exit(1);
       }
       // QUEUE_POS, MAX_WAIT, EDGE_SERVER_NUMBER
@@ -205,11 +216,13 @@ void get_running_config(FILE *ptr, shared_memory *SM)
                         SM->EDGE_SERVERS[x].vCPU_1_capacity = vCPU_capacities[0];
                         SM->EDGE_SERVERS[x].vCPU_2_capacity = vCPU_capacities[1];
                         // notify that server is ready
+                        /*
                         char a[] = " READY\n";
                         char b[40];
                         strncpy(b, SM->EDGE_SERVERS[x].name, 40);
                         strcat(b, a);
-                        output_str(b);
+                        output_str(b);*/
+
                   }
             }
       }
@@ -230,12 +243,15 @@ void output_str(char *s)
       struct tm *time_now;
       time(&now);
       time_now = localtime(&now);
+      
       // log file output
       fprintf(log_ptr, "%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
       fprintf(log_ptr, "%s", s);
+      fflush(log_ptr);
       // terminal output
       printf("%02d:%02d:%02d ", time_now->tm_hour, time_now->tm_min, time_now->tm_sec);
       printf("%s", s);
+
 }
 
 /*
@@ -243,6 +259,7 @@ Function to clear and free all elements needed and end simulation
 */
 void end_sim()
 {
+      
       output_str("SIMULATOR CLOSING\n");
       // code to clear
       sem_wait(semaphore);
@@ -292,7 +309,7 @@ void task_manager(shared_memory *SM)
       for (int i = 0; i< SM->EDGE_SERVER_NUMBER; i++){
             SM->fd[i] = (int *)calloc(2, sizeof(int));
             if (SM->fd[i] == NULL){
-                  printf("erro");
+                  output_str("ERROR ALLOCATING MEMORY FOR UNAMED PIPE\n");
             }
       }
       
@@ -308,20 +325,23 @@ void task_manager(shared_memory *SM)
             pid_t current_pid = SM->edge_pid[i];
             if ((current_pid = fork()) == 0)
             {
-                  // do what edge server do                 
+                  // do what edge servers do                 
                   pipe(SM->fd[i]);
-                  edge_server_process(SM, i);
+                  edge_server_process(SM, i);            
                   free(SM->fd[i]);
+                  exit(0);
             }
             else if (current_pid == -1)
             {
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
+            
       }
-
+      
       // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
       pthread_join(SM->taskmanager[1], NULL);
+      
       //Não sei se esta bem
       free(SM->fd);
 }
@@ -342,12 +362,25 @@ void edge_server_process(shared_memory *SM, int server_number)
 {
       // creates threads for each cpu
       sem_wait(semaphore);
-      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, vCPU_task, NULL);
-      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, vCPU_task, NULL);
+      
+      
+      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, NULL);
+      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, NULL);
+      
+
       sem_post(semaphore);
 
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[1], NULL);
+     
+      
+      
+      
+      
+      
+     
+     
+      
 }
 
 void *vCPU_task(void *p)
@@ -358,6 +391,8 @@ void *vCPU_task(void *p)
       output_str(msg);
       pthread_mutex_unlock(&vcpu_mutex);
       pthread_exit(NULL);
+      return NULL;
+      
 }
 
 void maintenance_manager()
