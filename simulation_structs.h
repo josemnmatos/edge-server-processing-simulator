@@ -22,6 +22,7 @@ typedef struct
         pthread_t taskmanager[2];
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
+        int **fd;
 } shared_memory;
 
 typedef struct

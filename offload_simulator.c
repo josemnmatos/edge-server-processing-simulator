@@ -246,6 +246,12 @@ void end_sim()
       output_str("SIMULATOR CLOSING\n");
       // code to clear
       sem_wait(semaphore);
+      /*
+      for(int i = 0; i <SM->EDGE_SERVER_NUMBER; i++)
+            free(SM->fd[i]);
+      free(SM->fd);
+      */
+
       int i = 0;
       while (i < (1 + NUM_PROCESS_INI))
             kill(SM->c_pid[i++], 0);
@@ -256,8 +262,7 @@ void end_sim()
             kill(SM->edge_pid[f++], 0);
       while (wait(NULL) != -1)
             ;
-      // free(SM->EDGE_SERVERS);
-      //  n sei se e preciso mas como e com o calloc
+      
       sem_post(semaphore);
       if (shmid >= 0)
             shmctl(shmid, IPC_RMID, NULL);
@@ -282,17 +287,31 @@ void task_manager(shared_memory *SM)
 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
+      // create SM->EDGE_SERVER_NUMBER number of pipes
+      SM->fd = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int*));
+      for (int i = 0; i< SM->EDGE_SERVER_NUMBER; i++){
+            SM->fd[i] = (int *)calloc(2, sizeof(int));
+            if (SM->fd[i] == NULL){
+                  printf("erro");
+            }
+      }
+      
+      
+
       sem_post(semaphore);
 
-      // create SM->EDGE_SERVER_NUMBER number of pipes
+      
+      
 
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
-            pid_t current_pid = SM->edge_pid[i++];
+            pid_t current_pid = SM->edge_pid[i];
             if ((current_pid = fork()) == 0)
             {
-                  // do what edge server do
+                  // do what edge server do                 
+                  pipe(SM->fd[i]);
                   edge_server_process(SM, i);
+                  free(SM->fd[i]);
             }
             else if (current_pid == -1)
             {
@@ -303,6 +322,8 @@ void task_manager(shared_memory *SM)
       // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
       pthread_join(SM->taskmanager[1], NULL);
+      //Não sei se esta bem
+      free(SM->fd);
 }
 
 void *task_manager_scheduler(void *p)
