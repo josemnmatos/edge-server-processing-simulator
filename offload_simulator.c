@@ -216,12 +216,12 @@ void get_running_config(FILE *ptr, shared_memory *SM)
                         SM->EDGE_SERVERS[x].vCPU_1_capacity = vCPU_capacities[0];
                         SM->EDGE_SERVERS[x].vCPU_2_capacity = vCPU_capacities[1];
                         // notify that server is ready
-                        /*
+                        
                         char a[] = " READY\n";
                         char b[40];
                         strncpy(b, SM->EDGE_SERVERS[x].name, 40);
                         strcat(b, a);
-                        output_str(b);*/
+                        output_str(b);
 
                   }
             }
