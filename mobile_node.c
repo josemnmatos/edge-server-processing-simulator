@@ -1,5 +1,5 @@
 /*
-João Maria Campos Donato 2020217878 
+João Maria Campos Donato 2020217878
 José Miguel Norte de Matos 2020217977
 */
 #include <stdio.h>
