@@ -2,9 +2,22 @@
 João Maria Campos Donato 2020217878 
 José Miguel Norte de Matos 2020217977
 */
+#include <pthread.h>
 #include <stdio.h>
-#include <sys/types.h>
+#include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <semaphore.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <assert.h>
 
 #define NUM_PROCESS_INI 3
 
@@ -26,12 +39,11 @@ typedef struct
         pthread_t taskmanager[2];
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
-        int **fd;
+        int queue_id;
+        
 } shared_memory;
 
-typedef struct
-{
-        char *request;
-        int priority;
-        struct node *nextNode;
-} node;
+typedef struct {
+long mtype;
+int content;
+} message;
