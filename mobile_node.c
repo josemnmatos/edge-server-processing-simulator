@@ -7,6 +7,14 @@ José Miguel Norte de Matos 2020217977
 #include <string.h>
 #include <ctype.h>
 
+typedef struct
+{
+        int noOfRequests;
+        int intervalBetwRequests;
+        int thousInstructPerRequest;
+        int maxExecTimeSecs;
+} request;
+
 /*
 $ mobile_node {nº pedidos a gerar} {intervalo entre pedidos em ms}
 {milhares de instruções de cada pedido} {tempo máximo para execução}
@@ -17,7 +25,7 @@ int validateInput(char *s);
 int main(int argc, char *argv[])
 {
         /* code */
-        int numberOfRequests, intervalBetweenRequestsMS, thousandInstructionsPerRequest, maxExecutionTimeS;
+        request req;
         if (argc != 5)
         {
                 printf("Command format wrong! Should be:\n");
@@ -33,11 +41,12 @@ int main(int argc, char *argv[])
                         exit(1);
                 }
         }
-        // define variables
-        numberOfRequests = atoi(argv[1]);
-        intervalBetweenRequestsMS = atoi(argv[2]);
-        thousandInstructionsPerRequest = atoi(argv[3]);
-        maxExecutionTimeS = atoi(argv[4]);
+        // define o request
+        req.noOfRequests = atoi(argv[1]);
+        req.intervalBetwRequests = atoi(argv[2]);
+        req.thousInstructPerRequest = atoi(argv[3]);
+        req.maxExecTimeSecs = atoi(argv[4]);
+        // escrever o request no task pipe
 
         return 0;
 }
