@@ -41,12 +41,12 @@ int main(int argc, char *argv[])
                         exit(1);
                 }
         }
-        // define o request
+        // define the request
         req.noOfRequests = atoi(argv[1]);
         req.intervalBetwRequests = atoi(argv[2]);
         req.thousInstructPerRequest = atoi(argv[3]);
         req.maxExecTimeSecs = atoi(argv[4]);
-        // escrever o request no task pipe
+        // send request through task pipe
 
         return 0;
 }
