@@ -44,10 +44,7 @@ typedef struct
         
 } shared_memory;
 
-typedef struct {
-long mtype;
-int content;
-} message;
+
 
 
 typedef struct{
@@ -55,3 +52,8 @@ typedef struct{
         int thousInstructPerRequest;
         int maxExecTimeSecs;
 }task;
+
+typedef struct {
+long mtype;
+task tsk;
+} message;
