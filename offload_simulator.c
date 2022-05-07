@@ -29,6 +29,7 @@ sem_t *outputSemaphore;
 pthread_mutex_t vcpu_mutex, sm_mutex;
 FILE *config_ptr, *log_ptr;
 int **fd;
+int taskpipe; 
 
 // compile with : make all
 int main(int argc, char *argv[])
@@ -265,6 +266,7 @@ void end_sim()
             kill(SM->c_pid[i++], 0);
       while (wait(NULL) != -1)
             ;
+      close(taskpipe);
       int f = 0;
       while (f < (1 + SM->EDGE_SERVER_NUMBER))
             kill(SM->edge_pid[f++], 0);
@@ -333,7 +335,7 @@ void task_manager(shared_memory *SM)
             }
       }
       //read taskpipe
-      int taskpipe; 
+      
       if((taskpipe =open(PIPE_NAME, O_RDONLY))<0){
             output_str("ERROR OPENING NAMED PIPE\n");
             exit(0);
