@@ -26,10 +26,17 @@ int shmid;
 shared_memory *SM;
 sem_t *semaphore;
 sem_t *outputSemaphore;
+sem_t *TMSemaphore;
 pthread_mutex_t vcpu_mutex, sm_mutex;
 FILE *config_ptr, *log_ptr;
 int **fd;
 int taskpipe;
+pthread_cond_t schedulerCond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t taskQueue = PTHREAD_MUTEX_INITIALIZER;
+
+request *requestList;
+
+
 
 // compile with : make all
 int main(int argc, char *argv[])
@@ -273,6 +280,7 @@ void end_sim()
 
       sem_post(semaphore);
 
+      free(requestList);
       if (semaphore >= 0)
             sem_close(semaphore);
       output_str("SIMULATOR CLOSED\n");
@@ -290,6 +298,9 @@ void monitor()
       output_str("MONITOR WORKING\n");
 }
 
+
+
+
 void task_manager(shared_memory *SM)
 {
       // create a thread for each job
@@ -299,8 +310,8 @@ void task_manager(shared_memory *SM)
 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
-      // create SM->EDGE_SERVER_NUMBER number of pipes
 
+      // create SM->EDGE_SERVER_NUMBER number of pipes
       fd = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
@@ -311,8 +322,13 @@ void task_manager(shared_memory *SM)
             }
       }
 
+      //alocate memory for requestList
+      requestList = (request *) calloc(SM->QUEUE_POS, sizeof(request));
+
+
       sem_post(semaphore);
 
+      // create SM->EDGE_SERVER_NUMBER edge servers
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             pid_t current_pid = SM->edge_pid[i];
@@ -329,57 +345,116 @@ void task_manager(shared_memory *SM)
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
       }
-      // read taskpipe
 
+      // read taskpipe and send it to the queue
       if ((taskpipe = open(PIPE_NAME, O_RDONLY)) < 0)
       {
             output_str("ERROR OPENING NAMED PIPE\n");
             exit(0);
       }
+
       task tsk;
-      message msg;
+      request req;
+      
+      TMSemaphore = (sem_t *)malloc(sizeof(sem_t *));
+      sem_init(TMSemaphore, 1, 1);
       
       while (1)
       {
             read(taskpipe, &tsk, sizeof(tsk));
-            msg.mtype= 1;
-            msg.tsk = tsk;
-            //semaphoro falta
-            msgsnd(SM->queue_id, &msg, sizeof(tsk), 0);
+            req.tsk = tsk;
+            sem_wait(TMSemaphore);
+            
+            if (SM->numQUEUE == SM->QUEUE_POS){
+                  output_str("FULL QUEUE TASK HAS BEEN DELETED\n");
+                  
+            }
+            else{
+                  req.timeOfEntry = time(NULL);
+                  //add request at end of queue and signal the scheduler
+                  requestList[SM->numQUEUE ++] = req;
+                  pthread_cond_broadcast(&schedulerCond);
+                  
+            } 
+            sem_post(TMSemaphore);
       }
 
       // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
       pthread_join(SM->taskmanager[1], NULL);
 
-      // Não sei se esta bem
+      
       free(fd);
 }
+
+//checks and organizes queue according to maxExecutiontime and arrival time to queue
+//needs a cond to only be active when a new msg arrives 
+
 
 void *task_manager_scheduler(void *p)
 {
       output_str("TASK_MANAGER_SCHEDULER WORKING\n");
+      
+      while(1){
+            pthread_mutex_lock(&taskQueue);
+            while(1){
+                  pthread_cond_wait(&schedulerCond, &taskQueue);
+                  break;
+            }
+            //organizar a fila
+
+
+            pthread_mutex_unlock(&taskQueue);
+            
+
+      
+      
+      
+      
+      }
       pthread_exit(NULL);
 }
 
+//checks the task with most priority can be executed by a vcpu in time inferior to MaxEXECTIME 
+//this thread is only activated if a vcpu is free 
+//precisamos de um cond p saber se ha algum vcpu livre
 void *task_manager_dispatcher(void *p)
 {
       output_str("TASK_MANAGER_DISPATCHER WORKING\n");
+      
+      time_t timenow;
+      
+            
+
       pthread_exit(NULL);
 }
 
 void edge_server_process(shared_memory *SM, int server_number)
-{
+{     
+      //notify startup to maintenance manager
+
+
+      pthread_mutex_t vcpu_lock = PTHREAD_MUTEX_INITIALIZER;
+      pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+      int lower_processing_vcpu_state=0;
+
       // creates threads for each cpu
       sem_wait(semaphore);
-
       pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, NULL);
       pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, NULL);
-
       sem_post(semaphore);
+
+
+
+
 
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[1], NULL);
+
+
+      //clean
+      pthread_cond_destroy(&cond);
+      pthread_mutex_destroy(&vcpu_lock);
 }
 
 void *vCPU_task(void *p)

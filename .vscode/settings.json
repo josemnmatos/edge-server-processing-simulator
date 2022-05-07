@@ -28,5 +28,6 @@
     "*.java": "java",
     "*.m": "matlab",
     "pthread.h": "c"
-  }
+  },
+  "C_Cpp.errorSquiggles": "Disabled"
 }

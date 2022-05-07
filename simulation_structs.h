@@ -33,19 +33,24 @@ typedef struct
 } edge_server;
 
 typedef struct
-{
+{       
+        //config sets
         int EDGE_SERVER_NUMBER;
         int QUEUE_POS;
         int MAX_WAIT;
+        //edge server array
         edge_server *EDGE_SERVERS;
+        //task manager threads
         pthread_t taskmanager[2];
+        //process id's
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
         int queue_id;
+        int numQUEUE;
         
+        //global vcpu performance
+        int performance_flag;
 } shared_memory;
-
-
 
 
 typedef struct{
@@ -55,6 +60,6 @@ typedef struct{
 }task;
 
 typedef struct {
-long mtype;
 task tsk;
-} message;
+time_t timeOfEntry;
+} request;
