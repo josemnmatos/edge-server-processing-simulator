@@ -1,7 +1,7 @@
-/*
-João Maria Campos Donato 2020217878
-José Miguel Norte de Matos 2020217977
-*/
+
+//João Maria Campos Donato 2020217878
+//José Miguel Norte de Matos 2020217977
+
 
 #include "simulation_structs.h"
 
@@ -17,7 +17,7 @@ void monitor();
 void maintenance_manager();
 void get_running_config(FILE *ptr, shared_memory *SM);
 void show_server_info(edge_server s);
-void sigint();
+void sigint_handler(int signum);
 void output_str(char *s);
 void end_sim();
 void *vCPU_task(void *p);
@@ -29,7 +29,7 @@ sem_t *outputSemaphore;
 pthread_mutex_t vcpu_mutex, sm_mutex;
 FILE *config_ptr, *log_ptr;
 int **fd;
-int taskpipe; 
+int taskpipe;
 
 // compile with : make all
 int main(int argc, char *argv[])
@@ -54,14 +54,13 @@ int main(int argc, char *argv[])
       // system manager
       system_manager(argv[1]);
 
-      
       return 0;
 }
 
 void system_manager(const char *config_file)
 {
       // capture sigint
-      signal(SIGINT, sigint);
+      signal(SIGINT, sigint_handler);
 
       //********* capture sigtstp for statistics ********
 
@@ -186,7 +185,6 @@ void get_running_config(FILE *ptr, shared_memory *SM)
                         exit(0);
                   }
 
-
                   SM->QUEUE_POS = configs[0];
                   SM->MAX_WAIT = configs[1];
                   SM->EDGE_SERVER_NUMBER = configs[2];
@@ -299,13 +297,10 @@ void task_manager(shared_memory *SM)
       pthread_create(&SM->taskmanager[0], NULL, task_manager_scheduler, NULL);
       pthread_create(&SM->taskmanager[1], NULL, task_manager_dispatcher, NULL);
 
-      
-
-
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
       // create SM->EDGE_SERVER_NUMBER number of pipes
-      
+
       fd = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
@@ -334,18 +329,19 @@ void task_manager(shared_memory *SM)
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
       }
-      //read taskpipe
-      
-      if((taskpipe =open(PIPE_NAME, O_RDONLY))<0){
+      // read taskpipe
+
+      if ((taskpipe = open(PIPE_NAME, O_RDONLY)) < 0)
+      {
             output_str("ERROR OPENING NAMED PIPE\n");
             exit(0);
       }
       task tsk;
-      while(1){
+      while (1)
+      {
             read(taskpipe, &tsk, sizeof(tsk));
             printf("%d\n", tsk.thousInstructPerRequest);
       }
-
 
       // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
@@ -399,8 +395,8 @@ void maintenance_manager()
       output_str("MAINTENANCE MANAGER WORKING\n");
 }
 
-void sigint()
+void sigint_handler(int signum)
 {
-      output_str("^C was pressed. Closing the program");
+      output_str("^C PRESSED. CLOSING PROGRAM.\n");
       end_sim();
 }
