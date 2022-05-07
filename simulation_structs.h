@@ -18,6 +18,7 @@ José Miguel Norte de Matos 2020217977
 #include <sys/stat.h>
 #include <errno.h>
 #include <assert.h>
+#include <ctype.h>
 
 #define NUM_PROCESS_INI 3
 
@@ -47,3 +48,10 @@ typedef struct {
 long mtype;
 int content;
 } message;
+
+
+typedef struct{
+        int id;
+        int thousInstructPerRequest;
+        int maxExecTimeSecs;
+}task;

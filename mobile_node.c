@@ -2,10 +2,9 @@
 João Maria Campos Donato 2020217878
 José Miguel Norte de Matos 2020217977
 */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
+#include "simulation_structs.h"
+
+#define PIPE_NAME "TASK_PIPE"
 
 typedef struct
 {
@@ -14,6 +13,7 @@ typedef struct
         int thousInstructPerRequest;
         int maxExecTimeSecs;
 } offload;
+
 
 /*
 $ mobile_node {nº pedidos a gerar} {intervalo entre pedidos em ms}
@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
         if (offload_process == -1)
         {
 
-                output_str("ERROR SENDING OFFLOAD TASKS\n");
+                printf("ERROR SENDING OFFLOAD TASKS\n");
                 exit(1);
         }
 
@@ -66,15 +66,24 @@ int main(int argc, char *argv[])
 void send_requests(offload off)
 {
         int requests_sent = 0;
+        int fd;
+        task mes;
+        mes.maxExecTimeSecs = off.maxExecTimeSecs;
+        mes.thousInstructPerRequest = off.thousInstructPerRequest;
+
+        if ((fd = open(PIPE_NAME, O_WRONLY)) < 0) {
+                printf("ERROR OPENING PIPE FOR WRITING\n");
+                exit(0);
+        }
         while (1)
         {
-                // check if all requests have been sent, if yes break
-
-                // check if task pipe exists, if not exit
-
-                // send request (with semaphore?)
-
-                // wait- interval between requests
+                if (requests_sent == off.noOfRequests)
+                        break;
+                mes.id = requests_sent;
+                write(fd, &mes, sizeof(mes));
+                requests_sent ++;
+                sleep(off.intervalBetwRequests);
+                    
         }
 }
 

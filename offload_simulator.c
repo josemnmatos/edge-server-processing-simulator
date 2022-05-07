@@ -28,6 +28,7 @@ sem_t *semaphore;
 sem_t *outputSemaphore;
 pthread_mutex_t vcpu_mutex, sm_mutex;
 FILE *config_ptr, *log_ptr;
+int **fd;
 
 // compile with : make all
 int main(int argc, char *argv[])
@@ -52,8 +53,7 @@ int main(int argc, char *argv[])
       // system manager
       system_manager(argv[1]);
 
-      // end + cleanup acho que nao é preciso aqui so no sigint
-      end_sim();
+      
       return 0;
 }
 
@@ -185,6 +185,7 @@ void get_running_config(FILE *ptr, shared_memory *SM)
                         exit(0);
                   }
 
+
                   SM->QUEUE_POS = configs[0];
                   SM->MAX_WAIT = configs[1];
                   SM->EDGE_SERVER_NUMBER = configs[2];
@@ -296,10 +297,13 @@ void task_manager(shared_memory *SM)
       pthread_create(&SM->taskmanager[0], NULL, task_manager_scheduler, NULL);
       pthread_create(&SM->taskmanager[1], NULL, task_manager_dispatcher, NULL);
 
+      
+
+
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
       // create SM->EDGE_SERVER_NUMBER number of pipes
-      int **fd;
+      
       fd = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
@@ -328,6 +332,18 @@ void task_manager(shared_memory *SM)
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
       }
+      //read taskpipe
+      int taskpipe; 
+      if((taskpipe =open(PIPE_NAME, O_RDONLY))<0){
+            output_str("ERROR OPENING NAMED PIPE\n");
+            exit(0);
+      }
+      task tsk;
+      while(1){
+            read(taskpipe, &tsk, sizeof(tsk));
+            printf("%d\n", tsk.thousInstructPerRequest);
+      }
+
 
       // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
