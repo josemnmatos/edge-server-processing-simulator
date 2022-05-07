@@ -84,7 +84,7 @@ void system_manager(const char *config_file)
       output_str("CONFIGURATION SET\n");
 
       // create msg queue
-      // assert((SM->queue_id = msgget(IPC_PRIVATE, IPC_CREAT|0700)) != -1);
+      assert((SM->queue_id = msgget(IPC_PRIVATE, IPC_CREAT|0700)) != -1);
 
       // create named pipe
 
@@ -337,10 +337,15 @@ void task_manager(shared_memory *SM)
             exit(0);
       }
       task tsk;
+      message msg;
+      
       while (1)
       {
             read(taskpipe, &tsk, sizeof(tsk));
-            printf("%d\n", tsk.thousInstructPerRequest);
+            msg.mtype= 1;
+            msg.tsk = tsk;
+            //semaphoro falta
+            msgsnd(SM->queue_id, &msg, sizeof(tsk), 0);
       }
 
       // wait for the threads to finish

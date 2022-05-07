@@ -19,6 +19,7 @@ José Miguel Norte de Matos 2020217977
 #include <errno.h>
 #include <assert.h>
 #include <ctype.h>
+#include <sys/msg.h>
 
 #define NUM_PROCESS_INI 3
 
