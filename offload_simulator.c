@@ -36,7 +36,7 @@ pthread_mutex_t taskQueue = PTHREAD_MUTEX_INITIALIZER;
 
 request *requestList;
 
-int numQUEUE;
+int numQUEUE = 0;
 
 pid_t sysManpid;
 
@@ -396,26 +396,29 @@ void task_manager(shared_memory *SM)
       TMSemaphore = (sem_t *)malloc(sizeof(sem_t *));
       sem_init(TMSemaphore, 1, 1);
       output_str("a\n");
+      
       while (SM->shutdown == 0)
       {     
             
             read(taskpipe, &tsk, sizeof(tsk));
             req.tsk = tsk;
-            printf("%d\n",req.tsk.maxExecTimeSecs);
+            //printf("%d\n",req.tsk.maxExecTimeSecs);
             sem_wait(TMSemaphore);
             
+            printf("%d\n", numQUEUE);
+            /*
             if (numQUEUE == SM->QUEUE_POS){
                   output_str("FULL QUEUE TASK HAS BEEN DELETED\n");
                   
             }
-            else{
+            else{*/
                   req.timeOfEntry = time(NULL);
                   //add request at end of queue and signal the scheduler
-                  requestList[numQUEUE ++] = req;
+                  requestList[numQUEUE++] = req;
                  
                   pthread_cond_broadcast(&schedulerCond);
                   
-            } 
+            //} 
             sem_post(TMSemaphore);
             ;
       }
