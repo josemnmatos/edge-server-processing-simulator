@@ -44,6 +44,8 @@ pid_t sysManpid;
 
 
 
+
+
 // compile with : make all
 int main(int argc, char *argv[])
 {
@@ -65,10 +67,19 @@ int main(int argc, char *argv[])
       sem_init(semaphore, 1, 1);
 
       // system manager
-      system_manager(argv[1]);
 
-      while (wait(NULL) != -1)
-            ;
+
+      if ((sysManpid = fork()) == 0){
+            system_manager(argv[1]);
+      }
+      if (sysManpid == -1){
+            output_str("ERROR CREATING SYSTEM MANAGER\n");
+            exit(1);
+      
+      }
+      
+      
+      while(wait(NULL) != -1);
       
       return 0;
       
@@ -81,7 +92,7 @@ void system_manager(const char *config_file)
       // ignore sigint
       signal(SIGINT, SIG_IGN);
 
-      sysManpid = getpid();
+      
 
       //********* capture sigtstp for statistics ********
 
@@ -103,6 +114,8 @@ void system_manager(const char *config_file)
       //********* validate config file information ********
 
       output_str("CONFIGURATION SET\n");
+
+      SM->keepgoin = 0;
 
       // create msg queue
       assert((SM->queue_id = msgget(IPC_PRIVATE, IPC_CREAT|0700)) != -1);
@@ -169,8 +182,10 @@ void system_manager(const char *config_file)
       // handle control c
       signal(SIGINT, sigint_handler);
 
-      while (wait(NULL) != -1)
-            ;
+      
+
+      while(wait(NULL) != -1);
+      
 
 }
 
@@ -285,25 +300,29 @@ void end_sim()
       output_str("SIMULATOR CLOSING\n");
       // code to clear
       sem_wait(semaphore);
-      output_str("SIMULATOR dsadwd\n");
+      
+      //dispacher and scheduler will die
+      SM->keepgoin = 1;
 
       
-
       //close all pipes
       close(taskpipe);
+      
 
-      /*
+      //kills all edge servers
       int f = 0;
       while (f < (1 + SM->EDGE_SERVER_NUMBER))
             kill(SM->edge_pid[f++], SIGTERM);
+      
       output_str("EDGE SERVERS CLOSED\n");
-      */
+
+
+
       int i = 0;
       while (i < (1 + NUM_PROCESS_INI))
-            kill(getpgid(SM->c_pid[i++]), SIGTERM);
-
-      while(wait(NULL) != -1)
-            ;
+            kill(SM->c_pid[i++], SIGTERM);
+      
+      
       
       output_str("CHILD PROCESSES CLOSED\n");
       sem_post(semaphore);
@@ -318,6 +337,8 @@ void end_sim()
       output_str("SIMULATOR CLOSED\n");
       if (outputSemaphore >= 0)
             sem_close(outputSemaphore);
+
+      
 
       
 
@@ -433,7 +454,7 @@ void *task_manager_scheduler(void *p)
 {
       output_str("TASK_MANAGER_SCHEDULER WORKING\n");
       
-      while(1){
+      while(SM->keepgoin == 0){
             pthread_mutex_lock(&taskQueue);
             while(1){
                   pthread_cond_wait(&schedulerCond, &taskQueue);
@@ -475,7 +496,7 @@ void *task_manager_dispatcher(void *p)
       output_str("TASK_MANAGER_DISPATCHER WORKING\n");
       
       time_t timenow;
-      while(1){
+      while(SM->keepgoin == 0){
             // se vier condiçao do end sim acaba
       }
             
@@ -513,7 +534,7 @@ void edge_server_process(shared_memory *SM, int server_number)
 
 void *vCPU_task(void *p)
 {
-      while(1){
+      
       pthread_mutex_lock(&vcpu_mutex);
       //char msg[60];
       //sprintf(msg, "VPCU TASK COMPLETE BY THREAD %ld\n", pthread_self());
@@ -522,7 +543,7 @@ void *vCPU_task(void *p)
       
 
       pthread_mutex_unlock(&vcpu_mutex);
-      }
+      
       pthread_exit(NULL);
 }
 
