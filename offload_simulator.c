@@ -381,13 +381,13 @@ void task_manager(shared_memory *SM)
             }
       }
       output_str("c\n");
-      /*
+      
       // read taskpipe and send it to the queue
-      if ((taskpipe = open(PIPE_NAME, O_RDONLY)) < 0)
+      if ((taskpipe = open(PIPE_NAME, O_RDONLY |O_NONBLOCK)) < 0)
       {
             output_str("ERROR OPENING NAMED PIPE\n");
             exit(0);
-      }*/
+      }
 
       task tsk;
       request req;
@@ -398,7 +398,7 @@ void task_manager(shared_memory *SM)
       output_str("a\n");
       while (SM->shutdown == 0)
       {     
-            /*
+            
             read(taskpipe, &tsk, sizeof(tsk));
             req.tsk = tsk;
             printf("%d\n",req.tsk.maxExecTimeSecs);
@@ -417,7 +417,7 @@ void task_manager(shared_memory *SM)
                   
             } 
             sem_post(TMSemaphore);
-            */;
+            ;
       }
 
       // wait for the threads to finish
