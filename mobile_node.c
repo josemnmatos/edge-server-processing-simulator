@@ -87,7 +87,7 @@ void send_request(offload off)
                         exit(1);
                 }
                 tasks_sent++;
-                sleep(off.intervalBetwRequests);
+                sleep(off.intervalBetwRequests / 1000);
         }
 }
 

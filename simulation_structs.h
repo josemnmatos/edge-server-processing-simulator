@@ -29,7 +29,7 @@ typedef struct
         pthread_t vCPU[2];
         int vCPU_1_capacity;
         int vCPU_2_capacity;
-        int level_of_performance;
+        int running;
 } edge_server;
 
 typedef struct
@@ -39,8 +39,22 @@ typedef struct
         int total_anwser_time;
         int *executed_tasks_per_server;
         int *maintenance_per_server;
+        int unanswered_tasks;
 
 } stats;
+
+typedef struct
+{
+        int id;
+        int thousInstructPerRequest;
+        int maxExecTimeSecs;
+} task;
+
+typedef struct
+{
+        task tsk;
+        time_t timeOfEntry;
+} request;
 
 typedef struct
 {
@@ -58,27 +72,17 @@ typedef struct
         int queue_id;
         //dispacher and scheduler condition to kill
         int shutdown; 
-        
-        
-        
+        //elements in task queue
+        int num_queue;
         //global vcpu performance
         int performance_flag;
         // system stats
         stats simulation_stats;
+        //minimum wait time to execute next task
+        int minimum_wait_time;
 
 } shared_memory;
 
-typedef struct
-{
-        int id;
-        int thousInstructPerRequest;
-        int maxExecTimeSecs;
-} task;
 
-typedef struct
-{
-        task tsk;
-        time_t timeOfEntry;
-} request;
 
 

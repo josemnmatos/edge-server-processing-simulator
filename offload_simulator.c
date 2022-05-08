@@ -17,6 +17,7 @@ void maintenance_manager(shared_memory *SM);
 void get_running_config(FILE *ptr, shared_memory *SM);
 void show_server_info(edge_server s);
 void sigint_handler(int signum);
+void sigtstp_handler(int signum);
 void output_str(char *s);
 void end_sim();
 void *vCPU_task(void *p);
@@ -34,8 +35,6 @@ pthread_cond_t schedulerCond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t taskQueue = PTHREAD_MUTEX_INITIALIZER;
 
 request *requestList;
-
-int numQUEUE = 0;
 
 pid_t sysManpid;
 
@@ -90,9 +89,12 @@ int main(int argc, char *argv[])
 }
 
 void system_manager(const char *config_file)
-{
-      // ignore sigint
+{     
+      SM->num_queue = 0;
+
+      // ignore sigint and sigtstp
       signal(SIGINT, SIG_IGN);
+      signal(SIGTSTP, SIG_IGN);
 
       //********* capture sigtstp for statistics ********
 
@@ -177,8 +179,9 @@ void system_manager(const char *config_file)
             exit(3);
       }
 
-      // handle control c
+      // handle control c and ctrl z
       signal(SIGINT, sigint_handler);
+      signal(SIGTSTP, sigtstp_handler);
 
       // wait for all system manager child processes to end
       for (int j = 0; j < NUM_PROCESS_INI; j++)
@@ -310,12 +313,32 @@ void end_sim()
       sem_post(semaphore);
 }
 
+//monitor says the performance level of the edge servers
+//monitor knows which vcpus are available
+//activates and deactivates vcpus
+
 void monitor(shared_memory *SM)
-{
+{     
+      SM->performance_flag = 0;
+      float queue_rate;
       output_str("MONITOR WORKING\n");
       while (SM->shutdown == 0)
       {
-            ;
+            queue_rate = SM->num_queue / SM->QUEUE_POS ;
+            if((queue_rate > 0.8) && (SM->minimum_wait_time > SM->MAX_WAIT)){
+                  output_str("SET EDGE SERVERS HIGH PERFORMANCE\n");
+                  sem_wait(semaphore);
+                  SM->performance_flag = 1;
+                  sem_post(semaphore);
+
+            }
+            if(queue_rate < 0.2){
+                  output_str("SET EDGE SERVERS NORMAL PERFORMANCE\n");
+                  sem_wait(semaphore);
+                  SM->performance_flag = 0;
+                  sem_post(semaphore);
+            }
+            
       }
       output_str("MONITOR CLOSED\n");
 }
@@ -330,7 +353,7 @@ void task_manager(shared_memory *SM)
 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
-      output_str("f\n");
+      
       // create SM->EDGE_SERVER_NUMBER number of pipes
       fd = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
@@ -341,12 +364,12 @@ void task_manager(shared_memory *SM)
                   output_str("ERROR ALLOCATING MEMORY FOR UNNAMED PIPE\n");
             }
       }
-      output_str("e\n");
+      
       // alocate memory for requestList
       requestList = (request *)calloc(SM->QUEUE_POS, sizeof(request));
 
       sem_post(semaphore);
-      output_str("d\n");
+      
       // create SM->EDGE_SERVER_NUMBER edge servers
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
@@ -363,7 +386,7 @@ void task_manager(shared_memory *SM)
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
       }
-      output_str("c\n");
+      
 
       // read taskpipe and send it to the queue
       if ((taskpipe = open(PIPE_NAME, O_RDONLY | O_NONBLOCK)) < 0)
@@ -375,42 +398,48 @@ void task_manager(shared_memory *SM)
       task tsk;
       request req;
 
-      output_str("b\n");
+      
       TMSemaphore = (sem_t *)malloc(sizeof(sem_t *));
       sem_init(TMSemaphore, 1, 1);
-      output_str("a\n");
+      
+
+      int nread;
 
       while (SM->shutdown == 0)
       {
+            nread = read(taskpipe, &tsk, sizeof(tsk));
+            //-1 means pipe is empty & 0 means EOF
+            if (nread > 0){
+                  req.tsk = tsk;
+                  printf("%d\n",req.tsk.maxExecTimeSecs);
+                  sem_wait(TMSemaphore);
 
-            read(taskpipe, &tsk, sizeof(tsk));
-            req.tsk = tsk;
-            // printf("%d\n",req.tsk.maxExecTimeSecs);
-            sem_wait(TMSemaphore);
+                  printf("%d\n", SM->num_queue);
+                  
+                  if (SM->num_queue > SM->QUEUE_POS){
+                        output_str("FULL QUEUE TASK HAS BEEN DELETED\n");
 
-            printf("%d\n", numQUEUE);
-            /*
-            if (numQUEUE == SM->QUEUE_POS){
-                  output_str("FULL QUEUE TASK HAS BEEN DELETED\n");
+                  }
+                  else{
+                  req.timeOfEntry = time(NULL);
+                  // add request at end of queue and signal the scheduler
+                  requestList[SM->num_queue++] = req;
 
+                  pthread_cond_broadcast(&schedulerCond);
+
+                  
+                  sem_post(TMSemaphore);
             }
-            else{*/
-            req.timeOfEntry = time(NULL);
-            // add request at end of queue and signal the scheduler
-            requestList[numQUEUE++] = req;
-
-            pthread_cond_broadcast(&schedulerCond);
-
-            //}
-            sem_post(TMSemaphore);
-            ;
+            
       }
-
+      }
       // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
-      output_str("thread 1 left\n");
+      output_str("TASK_MANAGER_SCHEDULER CLOSED\n");
+      
       pthread_join(SM->taskmanager[1], NULL);
-      output_str("thread 2 left\n");
+      output_str("TASK_MANAGER_DISPATCHER CLOSED\n");
+      
 
       // wait for all edge servers to exit
       for (int j = 0; j < SM->EDGE_SERVER_NUMBER; j++)
@@ -422,7 +451,6 @@ void task_manager(shared_memory *SM)
 
       exit(0);
 }
-
 // checks and organizes queue according to maxExecutiontime and arrival time to queue
 // needs a cond to only be active when a new msg arrives
 
@@ -440,9 +468,9 @@ void *task_manager_scheduler(void *p)
             }*/
             // organizar a fila
             request temp;
-            for (int i = 0; i < numQUEUE; i++)
+            for (int i = 0; i < SM->num_queue; i++)
             {
-                  for (int j = i + 1; j < numQUEUE; j++)
+                  for (int j = i + 1; j < SM->num_queue; j++)
                   {
                         if (requestList[i].tsk.maxExecTimeSecs > requestList[j].tsk.maxExecTimeSecs)
                         {
@@ -464,7 +492,7 @@ void *task_manager_scheduler(void *p)
 
             pthread_mutex_unlock(&taskQueue);
       }
-      output_str("TASK_MANAGER_SCHEDULER CLOSED\n");
+      
       pthread_exit(NULL);
 }
 
@@ -475,13 +503,31 @@ void *task_manager_dispatcher(void *p)
 {
       output_str("TASK_MANAGER_DISPATCHER WORKING\n");
 
+      pthread_cond_t free_vcpu=PTHREAD_COND_INITIALIZER;
+      pthread_mutex_t dispatch_mutex=PTHREAD_MUTEX_INITIALIZER;
+
       time_t timenow;
       while (SM->shutdown == 0)
-      {
-            ;
+      {     
+            // this thread is only activated if a vcpu is free
+            pthread_mutex_lock(&dispatch_mutex);
+            while(1){//condition to check if any is free
+
+
+                  pthread_cond_wait(&free_vcpu,&dispatch_mutex);
+            }
+            pthread_mutex_unlock(&dispatch_mutex);
+
+            request most_priority=requestList[0];
+            // checks the task with most priority can be executed by a vcpu in time inferior to MaxEXECTIME
+
+
+            
+
+
       }
 
-      output_str("TASK_MANAGER_DISPATCHER CLOSED\n");
+     
       pthread_exit(NULL);
 }
 
@@ -534,6 +580,19 @@ void maintenance_manager(shared_memory *SM)
       }
       output_str("MAINTENANCE MANAGER CLOSED\n");
       exit(0);
+}
+
+
+
+void sigtstp_handler(int signum){
+      
+      output_str("^Z PRESSED. PRINTING STATISTICS.\n");
+      sem_wait(outputSemaphore);
+      printf("Number of requested tasks: %d", SM->simulation_stats.requested_tasks);
+      printf("Number of executed tasks: %d", SM->simulation_stats.executed_tasks);
+      //rest
+
+      sem_post(outputSemaphore);
 }
 
 void sigint_handler(int signum)
