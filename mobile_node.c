@@ -11,9 +11,8 @@ typedef struct
         int noOfRequests;
         int intervalBetwRequests;
         int thousInstructPerRequest;
-        int maxExecTimeSecs;
+        int maxExecTimeS;
 } offload;
-
 
 /*
 $ mobile_node {nº pedidos a gerar} {intervalo entre pedidos em ms}
@@ -21,7 +20,7 @@ $ mobile_node {nº pedidos a gerar} {intervalo entre pedidos em ms}
 */
 
 int validateInput(char *s);
-void send_requests(offload off);
+void send_request(offload off);
 
 int main(int argc, char *argv[])
 {
@@ -42,48 +41,53 @@ int main(int argc, char *argv[])
                         exit(1);
                 }
         }
-        // define the request
+        // define the offload request
         off.noOfRequests = atoi(argv[1]);
         off.intervalBetwRequests = atoi(argv[2]);
         off.thousInstructPerRequest = atoi(argv[3]);
-        off.maxExecTimeSecs = atoi(argv[4]);
+        off.maxExecTimeS = atoi(argv[4]);
 
         pid_t offload_process;
         if ((offload_process = fork()) == 0)
-        { // send requests through task pipe
-                send_requests(off);
+        { // send request through task pipe
+                send_request(off);
         }
         if (offload_process == -1)
         {
 
-                printf("ERROR SENDING OFFLOAD TASKS\n");
+                printf("ERROR: SENDING OFFLOAD TASKS\n");
                 exit(1);
         }
 
         return 0;
 }
 
-void send_requests(offload off)
+void send_request(offload off)
 {
-        int requests_sent = 0;
+        int tasks_sent = 1;
         int fd;
-        task mes;
-        mes.maxExecTimeSecs = off.maxExecTimeSecs;
-        mes.thousInstructPerRequest = off.thousInstructPerRequest;
+        task message;
+        message.maxExecTimeS = off.maxExecTimeS;
+        message.thousInstructPerRequest = off.thousInstructPerRequest;
 
-        if ((fd = open(PIPE_NAME, O_WRONLY)) < 0) {
-                printf("ERROR OPENING PIPE FOR WRITING\n");
+        if ((fd = open(PIPE_NAME, O_WRONLY)) < 0)
+        {
+                printf("ERROR: OPENING PIPE FOR WRITING\n");
                 exit(0);
         }
+
         while (1)
         {
-                if (requests_sent == off.noOfRequests)
+                if (tasks_sent == off.noOfRequests)
                         break;
-                mes.id = requests_sent;
-                write(fd, &mes, sizeof(mes));
-                requests_sent ++;
+                message.id = tasks_sent;
+                if (write(fd, &message, sizeof(message)) == -1)
+                {
+                        printf("ERROR: PIPE DOES NOT EXIST\n");
+                        exit(1);
+                }
+                tasks_sent++;
                 sleep(off.intervalBetwRequests);
-                    
         }
 }
 
