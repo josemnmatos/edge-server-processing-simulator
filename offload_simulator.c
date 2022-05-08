@@ -38,6 +38,9 @@ request *requestList;
 
 int numQUEUE;
 
+pid_t sysManpid;
+
+
 
 
 
@@ -63,6 +66,12 @@ int main(int argc, char *argv[])
 
       // system manager
       system_manager(argv[1]);
+
+      while (wait(NULL) != -1)
+            ;
+      
+      return 0;
+      
       
       
 }
@@ -71,6 +80,8 @@ void system_manager(const char *config_file)
 {
       // ignore sigint
       signal(SIGINT, SIG_IGN);
+
+      sysManpid = getpid();
 
       //********* capture sigtstp for statistics ********
 
@@ -121,7 +132,7 @@ void system_manager(const char *config_file)
             output_str("ERROR CREATING PROCESS MONITOR\n");
             exit(1);
       }
-      sleep(1);
+      
 
       // task_manager process
       if ((SM->c_pid[1] = fork()) == 0)
@@ -138,7 +149,7 @@ void system_manager(const char *config_file)
 
             exit(2);
       }
-      sleep(1);
+      
 
       // maintenance manager process
       if ((SM->c_pid[2] = fork()) == 0)
@@ -154,11 +165,13 @@ void system_manager(const char *config_file)
 
             exit(3);
       }
-      sleep(1);
+      
       // handle control c
       signal(SIGINT, sigint_handler);
 
-      
+      while (wait(NULL) != -1)
+            ;
+
 }
 
 /*
@@ -272,38 +285,44 @@ void end_sim()
       output_str("SIMULATOR CLOSING\n");
       // code to clear
       sem_wait(semaphore);
+      output_str("SIMULATOR dsadwd\n");
 
-      pthread_exit(&SM->taskmanager[0]);
-      pthread_exit(&SM->taskmanager[1]);
-      //close all pipes
       
+
+      //close all pipes
       close(taskpipe);
 
-      int i = 0;
-      while (i < (1 + NUM_PROCESS_INI))
-            kill(SM->c_pid[i++], 0);
-      while (wait(NULL) != -1)
-            ;
-      close(taskpipe);
+      /*
       int f = 0;
       while (f < (1 + SM->EDGE_SERVER_NUMBER))
-            kill(SM->edge_pid[f++], 0);
-      while (wait(NULL) != -1)
-            ;
+            kill(SM->edge_pid[f++], SIGTERM);
+      output_str("EDGE SERVERS CLOSED\n");
+      */
+      int i = 0;
+      while (i < (1 + NUM_PROCESS_INI))
+            kill(getpgid(SM->c_pid[i++]), SIGTERM);
 
+      while(wait(NULL) != -1)
+            ;
+      
+      output_str("CHILD PROCESSES CLOSED\n");
       sem_post(semaphore);
 
       free(requestList);
       if (semaphore >= 0)
             sem_close(semaphore);
+      
+      if (shmid >= 0)
+            shmctl(shmid, IPC_RMID, NULL);
+      fclose(log_ptr);
       output_str("SIMULATOR CLOSED\n");
       if (outputSemaphore >= 0)
             sem_close(outputSemaphore);
 
-      if (shmid >= 0)
-            shmctl(shmid, IPC_RMID, NULL);
-      fclose(log_ptr);
-      exit(1);
+      
+
+      
+      
 }
 
 void monitor()
@@ -399,8 +418,11 @@ void task_manager(shared_memory *SM)
       pthread_join(SM->taskmanager[0], NULL);
       pthread_join(SM->taskmanager[1], NULL);
 
+
       
       free(fd);
+      while (wait(NULL) != -1)
+            ;
 }
 
 //checks and organizes queue according to maxExecutiontime and arrival time to queue
@@ -440,11 +462,6 @@ void *task_manager_scheduler(void *p)
             }
             
             pthread_mutex_unlock(&taskQueue);
-            
-
-      
-      
-      
       
       }
       pthread_exit(NULL);
@@ -458,7 +475,9 @@ void *task_manager_dispatcher(void *p)
       output_str("TASK_MANAGER_DISPATCHER WORKING\n");
       
       time_t timenow;
-      
+      while(1){
+            // se vier condiçao do end sim acaba
+      }
             
 
       pthread_exit(NULL);
@@ -494,15 +513,17 @@ void edge_server_process(shared_memory *SM, int server_number)
 
 void *vCPU_task(void *p)
 {
+      while(1){
       pthread_mutex_lock(&vcpu_mutex);
-      char msg[60];
-      sprintf(msg, "VPCU TASK COMPLETE BY THREAD %ld\n", pthread_self());
+      //char msg[60];
+      //sprintf(msg, "VPCU TASK COMPLETE BY THREAD %ld\n", pthread_self());
 
-      output_str(msg);
+      //output_str(msg);
+      
 
       pthread_mutex_unlock(&vcpu_mutex);
+      }
       pthread_exit(NULL);
-      return NULL;
 }
 
 void maintenance_manager()

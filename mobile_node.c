@@ -11,7 +11,7 @@ typedef struct
         int noOfRequests;
         int intervalBetwRequests;
         int thousInstructPerRequest;
-        int maxExecTimeS;
+        int maxExecTimeSecs;
 } offload;
 
 /*
@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
         off.noOfRequests = atoi(argv[1]);
         off.intervalBetwRequests = atoi(argv[2]);
         off.thousInstructPerRequest = atoi(argv[3]);
-        off.maxExecTimeS = atoi(argv[4]);
+        off.maxExecTimeSecs = atoi(argv[4]);
 
         pid_t offload_process;
         if ((offload_process = fork()) == 0)
@@ -67,7 +67,7 @@ void send_request(offload off)
         int tasks_sent = 1;
         int fd;
         task message;
-        message.maxExecTimeS = off.maxExecTimeS;
+        message.maxExecTimeSecs = off.maxExecTimeSecs;
         message.thousInstructPerRequest = off.thousInstructPerRequest;
 
         if ((fd = open(PIPE_NAME, O_WRONLY)) < 0)
