@@ -34,6 +34,16 @@ typedef struct
 
 typedef struct
 {
+        int requested_tasks;
+        int executed_tasks;
+        int total_anwser_time;
+        int *executed_tasks_per_server;
+        int *maintenance_per_server;
+
+} stats;
+
+typedef struct
+{
         // config sets
         int EDGE_SERVER_NUMBER;
         int QUEUE_POS;
@@ -46,16 +56,12 @@ typedef struct
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
         int queue_id;
-<<<<<<< HEAD
         //dispacher and scheduler condition to kill
-        int keepgoin; 
+        int shutdown; 
+        
         
         
         //global vcpu performance
-=======
-
-        // global vcpu performance
->>>>>>> 82835bcd8d01319702faf37d2dd6b82c8da50a61
         int performance_flag;
         // system stats
         stats simulation_stats;
@@ -75,12 +81,4 @@ typedef struct
         time_t timeOfEntry;
 } request;
 
-typedef struct
-{
-        int requested_tasks;
-        int executed_tasks;
-        int total_anwser_time;
-        int *executed_tasks_per_server;
-        int *maintenance_per_server;
 
-} stats;
