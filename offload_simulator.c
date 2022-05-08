@@ -63,14 +63,14 @@ int main(int argc, char *argv[])
 
       // system manager
       system_manager(argv[1]);
-
-      return 0;
+      
+      
 }
 
 void system_manager(const char *config_file)
 {
-      // capture sigint
-      signal(SIGINT, sigint_handler);
+      // ignore sigint
+      signal(SIGINT, SIG_IGN);
 
       //********* capture sigtstp for statistics ********
 
@@ -111,7 +111,7 @@ void system_manager(const char *config_file)
       {
 
             output_str("PROCESS MONITOR CREATED\n");
-
+            //not using
             monitor();
             exit(0);
       }
@@ -144,7 +144,7 @@ void system_manager(const char *config_file)
       if ((SM->c_pid[2] = fork()) == 0)
       {
             output_str("PROCESS MAINTENANCE_MANAGER CREATED\n");
-
+            //not using
             maintenance_manager();
             exit(0);
       }
@@ -155,6 +155,10 @@ void system_manager(const char *config_file)
             exit(3);
       }
       sleep(1);
+      // handle control c
+      signal(SIGINT, sigint_handler);
+
+      
 }
 
 /*
@@ -269,6 +273,12 @@ void end_sim()
       // code to clear
       sem_wait(semaphore);
 
+      pthread_exit(&SM->taskmanager[0]);
+      pthread_exit(&SM->taskmanager[1]);
+      //close all pipes
+      
+      close(taskpipe);
+
       int i = 0;
       while (i < (1 + NUM_PROCESS_INI))
             kill(SM->c_pid[i++], 0);
@@ -299,6 +309,7 @@ void end_sim()
 void monitor()
 {
       output_str("MONITOR WORKING\n");
+      while(1){}
 }
 
 
@@ -334,8 +345,7 @@ void task_manager(shared_memory *SM)
       // create SM->EDGE_SERVER_NUMBER edge servers
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
-            pid_t current_pid = SM->edge_pid[i];
-            if ((current_pid = fork()) == 0)
+            if ((SM->edge_pid[i] = fork()) == 0)
             {
                   // do what edge servers do
                   pipe(fd[i]);
@@ -343,7 +353,7 @@ void task_manager(shared_memory *SM)
                   free(fd[i]);
                   exit(0);
             }
-            else if (current_pid == -1)
+            else if (SM->edge_pid[i] == -1)
             {
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
@@ -367,6 +377,7 @@ void task_manager(shared_memory *SM)
       {
             read(taskpipe, &tsk, sizeof(tsk));
             req.tsk = tsk;
+            printf("%d\n",req.tsk.maxExecTimeSecs);
             sem_wait(TMSemaphore);
             
             if (numQUEUE == SM->QUEUE_POS){
@@ -377,6 +388,7 @@ void task_manager(shared_memory *SM)
                   req.timeOfEntry = time(NULL);
                   //add request at end of queue and signal the scheduler
                   requestList[numQUEUE ++] = req;
+                 
                   pthread_cond_broadcast(&schedulerCond);
                   
             } 
@@ -424,7 +436,9 @@ void *task_manager_scheduler(void *p)
                         }
                         
                   }
+                  
             }
+            
             pthread_mutex_unlock(&taskQueue);
             
 
@@ -494,6 +508,7 @@ void *vCPU_task(void *p)
 void maintenance_manager()
 {
       output_str("MAINTENANCE MANAGER WORKING\n");
+      while(1){}
 }
 
 void sigint_handler(int signum)
