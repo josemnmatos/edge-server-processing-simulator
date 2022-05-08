@@ -46,7 +46,7 @@ typedef struct
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
         int queue_id;
-        int numQUEUE;
+        
         
         //global vcpu performance
         int performance_flag;
@@ -63,3 +63,5 @@ typedef struct {
 task tsk;
 time_t timeOfEntry;
 } request;
+
+

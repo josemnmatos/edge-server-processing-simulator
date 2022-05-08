@@ -36,6 +36,9 @@ pthread_mutex_t taskQueue = PTHREAD_MUTEX_INITIALIZER;
 
 request *requestList;
 
+int numQUEUE;
+
+
 
 
 // compile with : make all
@@ -356,6 +359,7 @@ void task_manager(shared_memory *SM)
       task tsk;
       request req;
       
+      
       TMSemaphore = (sem_t *)malloc(sizeof(sem_t *));
       sem_init(TMSemaphore, 1, 1);
       
@@ -365,14 +369,14 @@ void task_manager(shared_memory *SM)
             req.tsk = tsk;
             sem_wait(TMSemaphore);
             
-            if (SM->numQUEUE == SM->QUEUE_POS){
+            if (numQUEUE == SM->QUEUE_POS){
                   output_str("FULL QUEUE TASK HAS BEEN DELETED\n");
                   
             }
             else{
                   req.timeOfEntry = time(NULL);
                   //add request at end of queue and signal the scheduler
-                  requestList[SM->numQUEUE ++] = req;
+                  requestList[numQUEUE ++] = req;
                   pthread_cond_broadcast(&schedulerCond);
                   
             } 
@@ -402,8 +406,25 @@ void *task_manager_scheduler(void *p)
                   break;
             }
             //organizar a fila
-
-
+            request temp;
+            for (int i =0; i< numQUEUE; i++){
+                  for (int j = i+1; j< numQUEUE; j++){
+                        if (requestList[i].tsk.maxExecTimeSecs > requestList[j].tsk.maxExecTimeSecs){
+                              temp = requestList[i];
+                              requestList[i] = requestList[j];
+                              requestList[j] = temp;
+                        }
+                        else if (requestList[i].tsk.maxExecTimeSecs == requestList[j].tsk.maxExecTimeSecs)
+                        {
+                              if(requestList[i].timeOfEntry > requestList[j].timeOfEntry){
+                                    temp = requestList[i];
+                                    requestList[i] = requestList[j];
+                                    requestList[j] = temp;
+                              }
+                        }
+                        
+                  }
+            }
             pthread_mutex_unlock(&taskQueue);
             
 
