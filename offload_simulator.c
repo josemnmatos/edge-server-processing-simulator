@@ -12,7 +12,7 @@ void *task_manager_scheduler(void *p);
 void *task_manager_dispatcher(void *p);
 void edge_server_process(shared_memory *SM, int server_number);
 void monitor(shared_memory *SM);
-void maintenance_manager(shared_memory *SM);
+void maintenance_manager(int EDGE_SERVER_NUMBER);
 void get_running_config(FILE *ptr, shared_memory *SM);
 void show_server_info(edge_server s);
 void sigint_handler(int signum);
@@ -500,9 +500,9 @@ void task_manager(shared_memory *SM)
             wait(NULL);
       }
 
-      SM->simulation_stats.unanswered_tasks = SM->num_
+      SM->simulation_stats.unanswered_tasks = SM->num_queue;
 
-                                                  output_str("TASK_MANAGER CLOSING\n");
+      output_str("TASK_MANAGER CLOSING\n");
 
       pthread_cond_destroy(&schedulerCond);
 
@@ -667,7 +667,7 @@ void maintenance_manager(int EDGE_SERVER_NUMBER)
                   // enter maintenance
                   sleep((rand() % 5) + 1);
                   // send message to continue
-                  sprintf(send.msg_text, "CONTINUE", maintenance_counter);
+                  strcpy(send.msg_text, "CONTINUE");
                   msgsnd(maintenance_queue_id, &send, sizeof(send), 0);
                   maintenance_counter++;
                   // maintenance interval
