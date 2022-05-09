@@ -70,19 +70,25 @@ typedef struct
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
         int queue_id;
-        //dispacher and scheduler condition to kill
-        int shutdown; 
-        //elements in task queue
+        // dispacher and scheduler condition to kill
+        int shutdown;
+        // elements in task queue
         int num_queue;
-        //global vcpu performance
+        // global vcpu performance
         int performance_flag;
         // system stats
         stats simulation_stats;
-        //minimum wait time to execute next task
+        // minimum wait time to execute next task
         int minimum_wait_time;
+        // conditions
+        pthread_cond_t monitorCond;
+        pthread_cond_t dispatcherCond;
+        pthread_cond_t schedulerCond;
+        pthread_mutex_t dispatcherMutex;
+        pthread_mutex_t monitorMutex;
+        pthread_mutex_t schedulerMutex;
+        int monitorWork;
+        int dispatcherWork;
+        int schedulerWork;
 
 } shared_memory;
-
-
-
-
