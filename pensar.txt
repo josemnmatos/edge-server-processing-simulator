@@ -1,0 +1,12 @@
+sigint:
+dentro do SYSTEMManager:fecha named pipe para nao receber mais tarefas :: esperar que edge servers acabem -- que esperam por cada vcpu 
+
+                        maintenance manager pode acabar logo? e se tiver algum edge server em manutençao? esperar que saia de manutençao
+
+                        aguarda fim dos edge servers -- como aguardar? cond variable. Mas como avisar o vcpu que tem de terminar?
+
+                        imprime estatisticas-- estao na shared memory
+
+
+sigstp:
+dentro do systemmanager: imprime estatisticas-- estao na shared memory

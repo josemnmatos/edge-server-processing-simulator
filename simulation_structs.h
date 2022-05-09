@@ -58,6 +58,12 @@ typedef struct
 
 typedef struct
 {
+        long msg_type;
+        char msg_text[100];
+} message;
+
+typedef struct
+{
         // config sets
         int EDGE_SERVER_NUMBER;
         int QUEUE_POS;
@@ -69,7 +75,6 @@ typedef struct
         // process id's
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
-        int queue_id;
         // dispacher and scheduler condition to kill
         int shutdown;
         // elements in task queue
@@ -81,6 +86,7 @@ typedef struct
         // minimum wait time to execute next task
         int minimum_wait_time;
         // conditions
+        /*
         pthread_cond_t monitorCond;
         pthread_cond_t dispatcherCond;
         pthread_cond_t schedulerCond;
@@ -90,5 +96,9 @@ typedef struct
         int monitorWork;
         int dispatcherWork;
         int schedulerWork;
+        */
+
+        pthread_cond_t close_cond;
+        pthread_mutex_t close_mutex;
 
 } shared_memory;

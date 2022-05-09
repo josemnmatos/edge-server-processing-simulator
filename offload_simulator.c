@@ -21,6 +21,8 @@ void output_str(char *s);
 void end_sim();
 void *vCPU_task(void *p);
 
+void *close_handler(void *p);
+
 int shmid;
 shared_memory *SM;
 sem_t *semaphore;
@@ -28,8 +30,11 @@ sem_t *outputSemaphore;
 sem_t *TMSemaphore;
 pthread_mutex_t vcpu_mutex, sm_mutex;
 FILE *config_ptr, *log_ptr;
+
 int **fd;
 int taskpipe;
+int maintenance_queue_id;
+
 pthread_cond_t schedulerCond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t taskQueue = PTHREAD_MUTEX_INITIALIZER;
 
@@ -128,18 +133,11 @@ void system_manager(const char *config_file)
 
       SM->num_queue = 0;
       SM->shutdown = 0;
-      pthread_cond_init(&SM->monitorCond, &attrcondv);
-      pthread_cond_init(&SM->dispatcherCond, &attrcondv);
-      pthread_cond_init(&SM->schedulerCond, &attrcondv);
-      pthread_mutex_init(&SM->monitorMutex, &attrmutex);
-      pthread_mutex_init(&SM->dispatcherMutex, &attrmutex);
-      pthread_mutex_init(&SM->schedulerMutex, &attrmutex);
-      SM->monitorWork = 0;
-      SM->schedulerWork = 0;
-      SM->dispatcherWork = 0;
+      pthread_cond_init(&SM->close_cond, &attrcondv);
+      pthread_mutex_init(&SM->close_mutex, &attrmutex);
 
       // create msg queue
-      assert((SM->queue_id = msgget(IPC_PRIVATE, IPC_CREAT | 0700)) != -1);
+      assert((maintenance_queue_id = msgget(IPC_PRIVATE, IPC_CREAT | 0700)) != -1);
 
       // create named pipe
 
@@ -188,7 +186,7 @@ void system_manager(const char *config_file)
       {
             output_str("PROCESS MAINTENANCE_MANAGER CREATED\n");
             // not using
-            maintenance_manager(SM);
+            maintenance_manager(SM->EDGE_SERVER_NUMBER);
             exit(0);
       }
       if (SM->c_pid[2] == -1)
@@ -392,6 +390,17 @@ void monitor(shared_memory *SM)
       exit(0);
 }
 
+void *close_handler(void *p)
+{
+      pthread_mutex_lock(&SM->close_mutex);
+      while (SM->shutdown == 0)
+      {
+            pthread_cond_wait(&SM->close_cond, &SM->close_mutex);
+      }
+      pthread_mutex_unlock(&SM->close_mutex);
+      pthread_exit(NULL);
+}
+
 void task_manager(shared_memory *SM)
 {
       output_str("TASK_MANAGER WORKING\n");
@@ -462,7 +471,7 @@ void task_manager(shared_memory *SM)
         printf("%d\n", SM->num_queue);
 
         if (SM->num_queue > SM->QUEUE_POS){
-              output_str("FULL QUEUE TASK HAS BEEN DELETED\n");
+              output_str("FULL QUEUE: TASK HAS BEEN DELETED\n");
 
         }
         else{
@@ -491,7 +500,9 @@ void task_manager(shared_memory *SM)
             wait(NULL);
       }
 
-      output_str("TASK_MANAGER CLOSING\n");
+      SM->simulation_stats.unanswered_tasks = SM->num_
+
+                                                  output_str("TASK_MANAGER CLOSING\n");
 
       pthread_cond_destroy(&schedulerCond);
 
@@ -588,10 +599,16 @@ void edge_server_process(shared_memory *SM, int server_number)
       pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
       int lower_processing_vcpu_state = 0;
 
+      int *arg1 = malloc(sizeof(*arg));
+      int *arg2 = malloc(sizeof(*arg));
+
+      *arg1 = 1;
+      *arg2 = 2;
+
       // creates threads for each cpu
       sem_wait(semaphore);
-      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, NULL);
-      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, NULL);
+      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg1);
+      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, arg2);
       sem_post(semaphore);
 
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
@@ -606,8 +623,9 @@ void edge_server_process(shared_memory *SM, int server_number)
 
 void *vCPU_task(void *p)
 {
+      int num = *((int *)p);
       // TODO: know what vcpu it is recieves as argument in create
-
+      sigaction(SIGINT, &sa, NULL);
       // do for the task that is still going, to finish
       while (1)
       {
@@ -625,15 +643,43 @@ void *vCPU_task(void *p)
                   break;
             }
       }
+      free(p);
       pthread_exit(NULL);
 }
 
-void maintenance_manager(shared_memory *SM)
+void maintenance_manager(int EDGE_SERVER_NUMBER)
 {
       output_str("MAINTENANCE MANAGER WORKING\n");
-      while (SM->shutdown == 0)
+      int maintenance_counter = 0;
+      message send, receive;
+      while (1)
       {
+
+            // send message to server
+            sprintf(send.msg_text, "MAINTENANCE;%d", maintenance_counter);
+            // one edge server at a time
+            send.msg_type = maintenance_counter % EDGE_SERVER_NUMBER;
+            msgsnd(maintenance_queue_id, &send, sizeof(send), 0);
+            // wait on message from server of type to enter maintenance
+            msgrcv(maintenance_queue_id, &receive, sizeof(receive), send.msg_type, 0);
+            if (strcmp(receive.msg_text, "READY") == 0)
+            {
+                  // enter maintenance
+                  sleep((rand() % 5) + 1);
+                  // send message to continue
+                  sprintf(send.msg_text, "CONTINUE", maintenance_counter);
+                  msgsnd(maintenance_queue_id, &send, sizeof(send), 0);
+                  maintenance_counter++;
+                  // maintenance interval
+                  sleep((rand() % 5) + 1);
+            }
+            else
+            {
+                  output_str("SERVER MAINTENANCE FAILED");
+                  exit(0);
+            }
       }
+
       output_str("MAINTENANCE MANAGER CLOSED\n");
       exit(0);
 }
@@ -653,5 +699,9 @@ void sigtstp_handler(int signum)
 void sigint_handler(int signum)
 {
       output_str("^C PRESSED. CLOSING PROGRAM.\n");
-      end_sim();
+      output_str("WAITING FOR EDGESERVERS TO FINISH\n");
+}
+
+void sigint_handler_edgeserver(int signum)
+{
 }
