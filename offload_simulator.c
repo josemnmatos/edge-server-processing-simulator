@@ -261,14 +261,14 @@ void monitor(shared_memory *SM)
             queue_rate = SM->num_queue / SM->QUEUE_POS;
             if ((queue_rate > 0.8) && (SM->minimum_wait_time > SM->MAX_WAIT))
             {
-                  output_str("SET EDGE SERVERS HIGH PERFORMANCE\n");
+                  output_str("EDGE SERVERS IN HIGH PERFORMANCE\n");
                   sem_wait(semaphore);
                   SM->performance_flag = 1;
                   sem_post(semaphore);
             }
             if (queue_rate < 0.2)
             {
-                  output_str("SET EDGE SERVERS NORMAL PERFORMANCE\n");
+                  output_str("EDGE SERVERS IN NORMAL PERFORMANCE\n");
                   sem_wait(semaphore);
                   SM->performance_flag = 0;
                   sem_post(semaphore);
@@ -339,6 +339,7 @@ void task_manager(shared_memory *SM)
       TMSemaphore = (sem_t *)malloc(sizeof(sem_t *));
       sem_init(TMSemaphore, 1, 1);
 
+      int nread;
       // read taskpipe and send it to the queue
       if ((taskpipe = open(PIPE_NAME, O_RDWR)) < 0)
       {
@@ -348,23 +349,26 @@ void task_manager(shared_memory *SM)
       }
 
       
+      
 
       while (1)
-      {
+      {     
+            nread = read(taskpipe, &tsk, sizeof(tsk));
             // read until pipe closes
-            if (read(taskpipe, &tsk, sizeof(tsk)) <= 0 || errno == EINTR)
+            if (nread <= 0 || errno == EINTR)
             {
                   break;
             }
-            if (SM->shutdown == 0){
+            // only goes down here if it reads something -- pipe is open on blocking mode
+            if (SM->shutdown == 1){
                   break;
             }
-            // only goes down here if it reads something -- pipe is open on blocking mode
+            
             req.tsk = tsk;
-            printf("%d\n", req.tsk.maxExecTimeSecs);
+            
             sem_wait(TMSemaphore);
 
-            printf("%d\n", SM->num_queue);
+            
 
             if (SM->num_queue > SM->QUEUE_POS)
             {
@@ -375,6 +379,7 @@ void task_manager(shared_memory *SM)
                   req.timeOfEntry = time(NULL);
                   // add request at end of queue and signal the scheduler
                   requestList[SM->num_queue++] = req;
+                  printf("%d", req.tsk.id);
 
                   pthread_cond_signal(&schedulerCond);
                   pthread_cond_signal(&SM->monitorCond);
@@ -451,7 +456,7 @@ void *task_manager_scheduler(void *p)
             SM->schedulerWork = 0;
             pthread_mutex_unlock(&SM->schedulerMutex);
       }
-      output_str("scheduler left\n");
+      output_str("SCHEDULER LEFT\n");
       pthread_exit(NULL);
 }
 
@@ -483,7 +488,7 @@ void *task_manager_dispatcher(void *p)
             // checks the task with most priority can be executed by a vcpu in time inferior to MaxEXECTIME
       }
       pthread_exit(NULL);
-      output_str("dispatcher left\n");
+      output_str("DISPATCHER LEFT\n");
 }
 
 //###############################################
@@ -616,14 +621,14 @@ void sigint_handler(int signum)
 
 void task_manager_handler(int signum)
 {
-      output_str("signal received yes banans \n");
+      
       // close all pipes
       close(taskpipe);
 }
 
 void maint_manager_handler(int signum)
 {
-      output_str("signal received yes \n");
+      
       time_t time_passed1;
       time_t time_passed2;
 
