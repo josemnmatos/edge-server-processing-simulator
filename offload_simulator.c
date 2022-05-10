@@ -349,11 +349,14 @@ void task_manager(shared_memory *SM)
 
       
 
-      while (SM->shutdown == 0)
+      while (1)
       {
             // read until pipe closes
-            if (read(taskpipe, &tsk, sizeof(tsk)) <= 0 || errno == "EINTR")
+            if (read(taskpipe, &tsk, sizeof(tsk)) <= 0 || errno == EINTR)
             {
+                  break;
+            }
+            if (SM->shutdown == 0){
                   break;
             }
             // only goes down here if it reads something -- pipe is open on blocking mode
@@ -363,10 +366,10 @@ void task_manager(shared_memory *SM)
 
             printf("%d\n", SM->num_queue);
 
-            /*if (SM->num_queue > SM->QUEUE_POS)
+            if (SM->num_queue > SM->QUEUE_POS)
             {
                   output_str("FULL QUEUE: TASK HAS BEEN DELETED\n");
-            }*/
+            }
             else
             {
                   req.timeOfEntry = time(NULL);
@@ -629,6 +632,7 @@ void maint_manager_handler(int signum)
 
       if (random2 > time_passed2)
       {
+            output_str("WAITING FOR MAINTENANCE TO FINISH ON SOME EDGE SERVER\n");
             if (random1 > time_passed1)
             {
                   sleep(random1 - time_passed1 + random2 - time_passed2);
