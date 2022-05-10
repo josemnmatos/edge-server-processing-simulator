@@ -29,7 +29,9 @@ shared_memory *SM;
 sem_t *semaphore;
 sem_t *outputSemaphore;
 sem_t *TMSemaphore;
-pthread_mutex_t vcpu_mutex, sm_mutex;
+pthread_mutex_t vcpu_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t sm_mutex;
+
 FILE *config_ptr, *log_ptr;
 
 int **fd;
@@ -49,6 +51,8 @@ time_t time1;
 time_t time2;
 int random1;
 int random2;
+
+
 
 // compile with : make all
 int main(int argc, char *argv[])
@@ -87,8 +91,12 @@ int main(int argc, char *argv[])
 
       // close the rest of req
       free(requestList);
+      
       if (semaphore >= 0)
             sem_close(semaphore);
+      free(SM->min_waiting);
+      free(SM->EDGE_SERVERS);
+      free(SM->edge_pid);
 
       if (shmid >= 0)
             shmctl(shmid, IPC_RMID, NULL);
@@ -150,8 +158,12 @@ void system_manager(const char *config_file)
       pthread_cond_init(&SM->dispatcherCond, &attrcondv);
       pthread_mutex_init(&SM->dispatcherMutex, &attrmutex);
 
+      pthread_cond_init(&SM->vcpuCond, &attrcondv);
+
       SM->num_queue = 0;
       SM->shutdown = 0;
+      SM->min_waiting = (int*)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
+      
 
       // create msg queue
       assert((maintenance_queue_id = msgget(IPC_PRIVATE, IPC_CREAT | 0700)) != -1);
@@ -259,14 +271,14 @@ void monitor(shared_memory *SM)
             }
             // do monitor things
             queue_rate = SM->num_queue / SM->QUEUE_POS;
-            if ((queue_rate > 0.8) && (SM->minimum_wait_time > SM->MAX_WAIT))
+            if ((queue_rate > 0.8) && SM->performance_flag==0 && (SM->minimum_wait_time > SM->MAX_WAIT))
             {
                   output_str("EDGE SERVERS IN HIGH PERFORMANCE\n");
                   sem_wait(semaphore);
                   SM->performance_flag = 1;
                   sem_post(semaphore);
             }
-            if (queue_rate < 0.2)
+            if (queue_rate < 0.2 && SM->performance_flag==1)
             {
                   output_str("EDGE SERVERS IN NORMAL PERFORMANCE\n");
                   sem_wait(semaphore);
@@ -349,8 +361,6 @@ void task_manager(shared_memory *SM)
       }
 
       
-      
-
       while (1)
       {     
             nread = read(taskpipe, &tsk, sizeof(tsk));
@@ -379,8 +389,7 @@ void task_manager(shared_memory *SM)
                   req.timeOfEntry = time(NULL);
                   // add request at end of queue and signal the scheduler
                   requestList[SM->num_queue++] = req;
-                  printf("%d", req.tsk.id);
-
+                  
                   pthread_cond_signal(&schedulerCond);
                   pthread_cond_signal(&SM->monitorCond);
             }
@@ -456,7 +465,6 @@ void *task_manager_scheduler(void *p)
             SM->schedulerWork = 0;
             pthread_mutex_unlock(&SM->schedulerMutex);
       }
-      output_str("SCHEDULER LEFT\n");
       pthread_exit(NULL);
 }
 
@@ -485,10 +493,15 @@ void *task_manager_dispatcher(void *p)
             }
             // do dispatcher things
             request most_priority = requestList[0];
+            
+            
+
+
+
+
             // checks the task with most priority can be executed by a vcpu in time inferior to MaxEXECTIME
       }
       pthread_exit(NULL);
-      output_str("DISPATCHER LEFT\n");
 }
 
 //###############################################
@@ -496,43 +509,70 @@ void *task_manager_dispatcher(void *p)
 //###############################################
 
 void edge_server_process(shared_memory *SM, int server_number)
-{
+{     
+      int stopped=0;
+
       // notify startup to maintenance manager
       signal(SIGUSR1, SIG_IGN);
-      pthread_mutex_t vcpu_lock = PTHREAD_MUTEX_INITIALIZER;
-      pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-      int lower_processing_vcpu_state = 0;
+      
+      //int lower_processing_vcpu_state = 0;
 
-      int *arg1 = malloc(sizeof(int));
-      int *arg2 = malloc(sizeof(int));
+      vcpu_info *arg1 = malloc(sizeof(vcpu_info));
+      vcpu_info *arg2 = malloc(sizeof(vcpu_info));
 
-      *arg1 = 1;
-      *arg2 = 2;
+      arg1->server_number = server_number;       
+      arg2->server_number = server_number;
+      arg1->vcpu_number = 1;
+      arg2->vcpu_number = 2;
+      //hehehhe
 
       // creates threads for each cpu
       sem_wait(semaphore);
-      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg1);
-      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, arg2);
-      sem_post(semaphore);
+      //check which vcpu has the lowest processing capacity
 
+      if(SM->EDGE_SERVERS[server_number].vCPU_1_capacity <= SM->EDGE_SERVERS[server_number].vCPU_2_capacity){
+            pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg1);
+            pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, arg2);
+      }else{
+            pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg2);
+            pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, arg1);
+      }
+      sem_post(semaphore);
+      
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
       pthread_join(SM->EDGE_SERVERS[server_number].vCPU[1], NULL);
 
       // clean
-      pthread_cond_destroy(&cond);
-      pthread_mutex_destroy(&vcpu_lock);
+      pthread_cond_destroy(&SM->vcpuCond);
+      pthread_mutex_destroy(&vcpu_mutex);
 
       exit(0);
 }
 
 void *vCPU_task(void *p)
 {
-      int num = *((int *)p);
+      vcpu_info info = *((vcpu_info *)p);
       // TODO: know what vcpu it is recieves as argument in create
       // do for the task that is still going, to finish
+      
       while (1)
-      {
+      {     
             pthread_mutex_lock(&vcpu_mutex);
+            //check if edge server has entered maintenance
+            while(SM->EDGE_SERVERS[info.server_number].stopped==1){ 
+                  pthread_cond_wait(&SM->vcpuCond, &vcpu_mutex);
+            }
+            //condition to lock highest performing vcpu when on normal mode
+            while(SM->performance_flag == 0 && info.vcpu_number==2){ 
+                  pthread_cond_wait(&SM->vcpuCond, &vcpu_mutex);
+            }
+            //process
+            
+
+
+
+
+
             // condition variable
 
             // char msg[60];
@@ -545,6 +585,7 @@ void *vCPU_task(void *p)
             {
                   break;
             }
+            
       }
       free(p);
       pthread_exit(NULL);
@@ -665,8 +706,15 @@ void end_sim()
       // code to clear
       sem_wait(semaphore);
 
-      // dispacher and scheduler will die, other processes will follow
+      // dispacher and 
       SM->shutdown = 1;
+      SM->monitorWork = 1;
+      pthread_cond_broadcast(&SM->monitorCond);
+
+      //for both cpus to check shutdown condition
+      SM->performance_flag=1;
+      
+      
 
       // signal processes to check condition variables
 
@@ -675,12 +723,13 @@ void end_sim()
       SM->schedulerWork = 1;
       pthread_cond_broadcast(&SM->schedulerCond);
 
+      pthread_cond_broadcast(&SM->vcpuCond);
+
       // signal tm
       kill(SM->c_pid[1], SIGUSR1);
       // signal mm
       kill(SM->c_pid[2], SIGUSR1);
 
-      SM->monitorWork = 1;
       pthread_cond_broadcast(&SM->monitorCond);
 
       sem_post(semaphore);

@@ -23,13 +23,21 @@ José Miguel Norte de Matos 2020217977
 
 #define NUM_PROCESS_INI 3
 
+typedef struct{
+        int vcpu_number;
+        int server_number;
+}vcpu_info;
+
 typedef struct
 {
         char name[20];
         pthread_t vCPU[2];
         int vCPU_1_capacity;
         int vCPU_2_capacity;
-        int running;
+        int executed_tasks;
+        int maintenance_counter;
+        int stopped;
+
 } edge_server;
 
 typedef struct
@@ -37,8 +45,6 @@ typedef struct
         int requested_tasks;
         int executed_tasks;
         int total_anwser_time;
-        int *executed_tasks_per_server;
-        int *maintenance_per_server;
         int unanswered_tasks;
 
 } stats;
@@ -72,6 +78,8 @@ typedef struct
         edge_server *EDGE_SERVERS;
         // task manager threads
         pthread_t taskmanager[2];
+        //minimum waiting time
+        int *min_waiting;
         // process id's
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
@@ -97,5 +105,7 @@ typedef struct
         int monitorWork;
         int dispatcherWork;
         int schedulerWork;
+        int vcpuWork;
+        pthread_cond_t vcpuCond;
 
 } shared_memory;
