@@ -89,6 +89,7 @@ void send_request(offload off)
                 tasks_sent++;
                 sleep(off.intervalBetwRequests / 1000);
         }
+        close(fd);
 }
 
 int validateInput(char *s)
