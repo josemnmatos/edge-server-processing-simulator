@@ -75,6 +75,7 @@ typedef struct
         // process id's
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
+        int queue_id;
         // dispacher and scheduler condition to kill
         int shutdown;
         // elements in task queue
