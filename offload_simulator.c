@@ -341,7 +341,7 @@ void monitor(shared_memory *SM)
 // TASK MANAGER
 //###############################################
 
-void task_manager(shared_memory *SM)
+void task_manager(shared_memory *SM) //nao ta a funcionar bem acho 
 {
       // handler to shutdown task manager process
       signal(SIGUSR1, task_manager_handler);
@@ -465,8 +465,8 @@ void task_manager(shared_memory *SM)
             {
                   req.timeOfEntry = time(NULL);
                   // add request at end of queue and signal the scheduler
-                  requestList[SM->num_queue++] = req;
-                  //printf("%d")
+                  requestList[SM->num_queue++] = req; 
+                  printf("%d\n", req.tsk.id);
 
                   pthread_cond_signal(&schedulerCond);
                   pthread_cond_signal(&SM->monitorCond);
