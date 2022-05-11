@@ -82,6 +82,7 @@ typedef struct
         // minimum waiting time
         int *min_waiting;
         // process id's
+        pid_t sm_pid;
         pid_t c_pid[NUM_PROCESS_INI];
         pid_t *edge_pid;
         // dispacher and scheduler condition to kill
@@ -92,7 +93,7 @@ typedef struct
         int performance_flag;
         // system stats
         stats simulation_stats;
-        //server with minimum waiting time
+        // server with minimum waiting time
         int server;
 
         // conditions
@@ -107,11 +108,11 @@ typedef struct
         pthread_mutex_t dispatcherMutex;
         pthread_mutex_t monitorMutex;
         pthread_mutex_t schedulerMutex;
+        pthread_mutex_t vcpuMutex;
         int monitorWork;
         int dispatcherWork;
         int schedulerWork;
         int vcpuWork;
         pthread_cond_t vcpuCond;
-        
 
 } shared_memory;

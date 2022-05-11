@@ -5,6 +5,7 @@ José Miguel Norte de Matos 2020217977
 #include "simulation_structs.h"
 
 #define PIPE_NAME "TASK_PIPE"
+#define PIPE_BUF 64
 
 typedef struct
 {
@@ -64,11 +65,14 @@ int main(int argc, char *argv[])
 
 void send_request(offload off)
 {
+        // Tarefa: ID tarefa:Nº de instruções (em milhares):Tempo máximo para execução
+
         int tasks_sent = 1;
         int fd;
         task message;
         message.maxExecTimeSecs = off.maxExecTimeSecs;
         message.thousInstructPerRequest = off.thousInstructPerRequest;
+        char message_str[PIPE_BUF];
 
         if ((fd = open(PIPE_NAME, O_WRONLY)) < 0)
         {
@@ -81,7 +85,8 @@ void send_request(offload off)
                 if (tasks_sent == off.noOfRequests)
                         break;
                 message.id = tasks_sent;
-                if (write(fd, &message, sizeof(message)) == -1)
+                sprintf(message_str, "%d:%d:%d", message.id, message.thousInstructPerRequest, message.maxExecTimeSecs);
+                if (write(fd, message_str, strlen(message_str)) == -1)
                 {
                         printf("ERROR: PIPE DOES NOT EXIST\n");
                         exit(1);

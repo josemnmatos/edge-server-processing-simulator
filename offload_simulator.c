@@ -4,9 +4,10 @@
 #include "simulation_structs.h"
 
 #define PIPE_NAME "TASK_PIPE"
+#define PIPE_BUF 64
 #define NUM_PROCESS_INI 3
 
-void system_manager(const char *config_file);
+void system_manager(const char *config_file, pid_t sm_pid);
 void task_manager(shared_memory *SM);
 void *task_manager_scheduler(void *p);
 void *task_manager_dispatcher(void *p);
@@ -22,7 +23,7 @@ void *vCPU_task(void *p);
 void maint_manager_handler(int signum);
 void task_manager_handler(int signum);
 void edge_server_handler(int signum);
-
+void print_stats();
 void *close_handler(void *p);
 
 int shmid;
@@ -30,7 +31,6 @@ shared_memory *SM;
 sem_t *semaphore;
 sem_t *outputSemaphore;
 sem_t *TMSemaphore;
-pthread_mutex_t vcpu_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t sm_mutex;
 
 FILE *config_ptr, *log_ptr;
@@ -45,8 +45,6 @@ pthread_mutex_t taskQueue = PTHREAD_MUTEX_INITIALIZER;
 request *requestList;
 request *reqListFinal;
 
-pid_t sysManpid;
-
 int scheduler = 0;
 
 time_t time1;
@@ -59,6 +57,9 @@ int *vcpu_time;
 // compile with : make all
 int main(int argc, char *argv[])
 {
+      signal(SIGINT, SIG_IGN);
+      signal(SIGTSTP, SIG_IGN);
+
       outputSemaphore = (sem_t *)malloc(sizeof(sem_t *));
       sem_init(outputSemaphore, 1, 1);
       // create log file
@@ -77,12 +78,14 @@ int main(int argc, char *argv[])
       sem_init(semaphore, 1, 1);
 
       // system manager
+      pid_t sysmanpid;
 
-      if ((sysManpid = fork()) == 0)
+      if ((sysmanpid = fork()) == 0)
       {
-            system_manager(argv[1]);
+            output_str("a");
+            system_manager(argv[1], sysmanpid);
       }
-      if (sysManpid == -1)
+      if (sysmanpid == -1)
       {
             output_str("ERROR CREATING SYSTEM MANAGER\n");
             exit(1);
@@ -109,6 +112,7 @@ int main(int argc, char *argv[])
       free(SM->edgeServerMutex);
       free(SM->taskToProcess);
 
+      pthread_mutex_destroy(&SM->vcpuMutex);
       pthread_cond_destroy(&SM->vcpuCond);
 
       if (shmid >= 0)
@@ -125,7 +129,7 @@ int main(int argc, char *argv[])
 // SYSTEM MANAGER
 //###############################################
 
-void system_manager(const char *config_file)
+void system_manager(const char *config_file, pid_t sm_pid)
 {
       // ignore sigint and sigtstp
       signal(SIGINT, SIG_IGN);
@@ -136,6 +140,8 @@ void system_manager(const char *config_file)
       // create shared memory
       shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0700);
       SM = (shared_memory *)shmat(shmid, NULL, 0);
+
+      SM->sm_pid = sm_pid;
 
       // open config file and get the running config
 
@@ -175,6 +181,7 @@ void system_manager(const char *config_file)
       pthread_mutex_init(&SM->dispatcherMutex, &attrmutex);
 
       pthread_cond_init(&SM->vcpuCond, &attrcondv);
+      pthread_mutex_init(&SM->vcpuMutex, &attrmutex);
 
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
@@ -278,6 +285,7 @@ void monitor(shared_memory *SM)
       while (1)
       {
             pthread_mutex_lock(&SM->monitorMutex);
+
             // wait for broadcast from task manager
             while (SM->monitorWork == 0)
             {
@@ -385,9 +393,6 @@ void task_manager(shared_memory *SM)
             }
       }
 
-      task tsk;
-      request req;
-
       TMSemaphore = (sem_t *)malloc(sizeof(sem_t *));
       sem_init(TMSemaphore, 1, 1);
 
@@ -400,9 +405,14 @@ void task_manager(shared_memory *SM)
             exit(0);
       }
 
+      char task_read_string[PIPE_BUF];
+      task tsk;
+      request req;
+
       while (1)
       {
-            nread = read(taskpipe, &tsk, sizeof(tsk));
+            nread = read(taskpipe, task_read_string, PIPE_BUF);
+            printf("%s\n", task_read_string);
             // read until pipe closes
             if (nread <= 0 || errno == EINTR)
             {
@@ -412,6 +422,22 @@ void task_manager(shared_memory *SM)
             if (SM->shutdown == 1)
             {
                   break;
+            }
+
+            task_read_string[strcspn(task_read_string, "\n")] = 0;
+
+            // handle string read
+            if (strcmp(task_read_string, "EXIT") == 0)
+            {
+                  // send SIGINT to system manager
+                  kill(SM->sm_pid, SIGINT);
+                  continue;
+            }
+            else if (strcmp(task_read_string, "STATS") == 0)
+            {
+                  // send SIGTSTP to system manager
+                  kill(SM->sm_pid, SIGTSTP);
+                  continue;
             }
 
             req.tsk = tsk;
@@ -667,7 +693,8 @@ void edge_server_process(shared_memory *SM, int server_number)
       }
 
       // clean
-      pthread_mutex_destroy(&vcpu_mutex);
+      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg1);
+      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, arg2);
 
       // output_str("edge server left\n");
       exit(0);
@@ -681,25 +708,26 @@ void *vCPU_task(void *p)
 
       while (1)
       {
-            pthread_mutex_lock(&vcpu_mutex);
+            pthread_mutex_lock(&SM->vcpuMutex);
+
             // check if edge server has entered maintenance
             while (SM->EDGE_SERVERS[info.server_number].stopped == 1)
             {
-                  pthread_cond_wait(&SM->vcpuCond, &vcpu_mutex);
+                  pthread_cond_wait(&SM->vcpuCond, &SM->vcpuMutex);
             }
             if (SM->shutdown == 1)
             {
-                  pthread_mutex_unlock(&vcpu_mutex);
+                  pthread_mutex_unlock(&SM->vcpuMutex);
                   break;
             }
             // condition to lock highest performing vcpu when on normal mode
             while (SM->performance_flag == 0 && info.vcpu_number == 2)
             {
-                  pthread_cond_wait(&SM->vcpuCond, &vcpu_mutex);
+                  pthread_cond_wait(&SM->vcpuCond, &SM->vcpuMutex);
             }
             if (SM->shutdown == 1)
             {
-                  pthread_mutex_unlock(&vcpu_mutex);
+                  pthread_mutex_unlock(&SM->vcpuMutex);
                   break;
             }
             // process
@@ -709,7 +737,7 @@ void *vCPU_task(void *p)
 
             // output_str(msg);
 
-            pthread_mutex_unlock(&vcpu_mutex);
+            pthread_mutex_unlock(&SM->vcpuMutex);
       }
       output_str("vcpu left\n");
       free(p);
@@ -767,7 +795,7 @@ void maintenance_manager(int EDGE_SERVER_NUMBER)
 //###############################################
 
 void edge_server_handler(int signum)
-{     
+{
       output_str("EDGE SERVER LEAVING\n");
       exit(0);
 }
@@ -777,11 +805,16 @@ void sigtstp_handler(int signum)
 
       output_str("^Z PRESSED. PRINTING STATISTICS.\n");
       sem_wait(outputSemaphore);
-      printf("Number of requested tasks: %d", SM->simulation_stats.requested_tasks);
-      printf("Number of executed tasks: %d", SM->simulation_stats.executed_tasks);
+      print_stats();
       // rest
 
       sem_post(outputSemaphore);
+}
+
+void print_stats()
+{
+      printf("Number of requested tasks: %d\n", SM->simulation_stats.requested_tasks);
+      printf("Number of executed tasks: %d\n", SM->simulation_stats.executed_tasks);
 }
 
 void sigint_handler(int signum)
@@ -860,17 +893,15 @@ void end_sim()
 
       SM->performance_flag = 1;
       pthread_cond_broadcast(&SM->vcpuCond);
-      ~
 
-          /*
-          for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
-          {
-                SM->taskToProcess[i] = 1;
-                pthread_cond_broadcast(&SM->edgeServerCond[i]);
-          }*/
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            SM->taskToProcess[i] = 1;
+            pthread_cond_broadcast(&SM->edgeServerCond[i]);
+      }
 
-          // signal tm
-          kill(SM->c_pid[1], SIGUSR1);
+      // signal tm
+      kill(SM->c_pid[1], SIGUSR1);
       // signal mm
       kill(SM->c_pid[2], SIGUSR1);
       // signal edge servers
