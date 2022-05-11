@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
 
       if ((sysmanpid = fork()) == 0)
       {
-            output_str("a");
+
             system_manager(argv[1], sysmanpid);
       }
       if (sysmanpid == -1)
@@ -411,9 +411,9 @@ void task_manager(shared_memory *SM)
 
       while (1)
       {
+
             nread = read(taskpipe, task_read_string, PIPE_BUF);
 
-            printf("%s\n", task_read_string);
             // read until pipe closes
             if (nread <= 0 || errno == EINTR)
             {
@@ -424,7 +424,7 @@ void task_manager(shared_memory *SM)
             {
                   break;
             }
-            task_read_string[nread]='\0';
+            task_read_string[nread] = '\0';
             task_read_string[strcspn(task_read_string, "\n")] = 0;
 
             // handle string read
@@ -432,12 +432,14 @@ void task_manager(shared_memory *SM)
             {
                   // send SIGINT to system manager
                   kill(SM->sm_pid, SIGINT);
+                  fflush(NULL);
                   continue;
             }
             else if (strcmp(task_read_string, "STATS") == 0)
             {
                   // send SIGTSTP to system manager
                   kill(SM->sm_pid, SIGTSTP);
+                  fflush(NULL);
                   continue;
             }
             // handle the received task string
@@ -464,10 +466,15 @@ void task_manager(shared_memory *SM)
                   req.timeOfEntry = time(NULL);
                   // add request at end of queue and signal the scheduler
                   requestList[SM->num_queue++] = req;
+                  //printf("%d")
 
                   pthread_cond_signal(&schedulerCond);
                   pthread_cond_signal(&SM->monitorCond);
             }
+            sem_post(TMSemaphore);
+
+            sem_wait(TMSemaphore);
+            pthread_cond_signal(&SM->dispatcherCond);
             sem_post(TMSemaphore);
       }
 
@@ -485,8 +492,6 @@ void task_manager(shared_memory *SM)
       }
 
       free(vcpu_time);
-
-      SM->simulation_stats.unanswered_tasks = SM->num_queue;
 
       output_str("TASK_MANAGER CLOSING\n");
 
@@ -519,23 +524,26 @@ void *task_manager_scheduler(void *p)
             }
             // organizar a fila tarefa com maior prioridade vai ficar na prieira posiçao
             request temp;
-            for (int i = 0; i < SM->num_queue; i++)
+            if (SM->num_queue > 1)
             {
-                  for (int j = i + 1; j < SM->num_queue; j++)
+                  for (int i = 0; i < SM->num_queue; i++)
                   {
-                        if (requestList[i].tsk.maxExecTimeSecs > requestList[j].tsk.maxExecTimeSecs)
+                        for (int j = i + 1; j < SM->num_queue; j++)
                         {
-                              temp = requestList[i];
-                              requestList[i] = requestList[j];
-                              requestList[j] = temp;
-                        }
-                        else if (requestList[i].tsk.maxExecTimeSecs == requestList[j].tsk.maxExecTimeSecs)
-                        {
-                              if (requestList[i].timeOfEntry > requestList[j].timeOfEntry)
+                              if (requestList[i].tsk.maxExecTimeSecs > requestList[j].tsk.maxExecTimeSecs)
                               {
                                     temp = requestList[i];
                                     requestList[i] = requestList[j];
                                     requestList[j] = temp;
+                              }
+                              else if (requestList[i].tsk.maxExecTimeSecs == requestList[j].tsk.maxExecTimeSecs)
+                              {
+                                    if (requestList[i].timeOfEntry > requestList[j].timeOfEntry)
+                                    {
+                                          temp = requestList[i];
+                                          requestList[i] = requestList[j];
+                                          requestList[j] = temp;
+                                    }
                               }
                         }
                   }
@@ -559,6 +567,7 @@ void *task_manager_scheduler(void *p)
             }
 
             SM->schedulerWork = 0;
+
             pthread_mutex_unlock(&SM->schedulerMutex);
       }
       pthread_exit(NULL);
@@ -580,11 +589,12 @@ void *task_manager_dispatcher(void *p)
             while (SM->dispatcherWork == 0)
             { // condition to check if any is free
                   pthread_cond_wait(&SM->dispatcherCond, &SM->dispatcherMutex);
+                  SM->dispatcherWork = 1;
             }
-            pthread_mutex_unlock(&SM->dispatcherMutex);
             // check if system is shutting down
             if (SM->shutdown == 1)
             {
+                  pthread_mutex_unlock(&SM->dispatcherMutex);
                   break;
             }
             // do dispatcher things
@@ -596,6 +606,7 @@ void *task_manager_dispatcher(void *p)
                   // if edge server is on maintenance skip
                   if (SM->EDGE_SERVERS[i].stopped == 1)
                   {
+                        pthread_mutex_unlock(&SM->dispatcherMutex);
                         continue;
                   }
                   // check vcpu 1, if yes dispatch
@@ -610,6 +621,8 @@ void *task_manager_dispatcher(void *p)
                         write(fd[i][1], &most_priority.tsk, sizeof(most_priority.tsk));
                         SM->taskToProcess[i] = 1;
                         pthread_cond_broadcast(&SM->edgeServerCond[i]);
+                        output_str("TASK DISPATCHED\n");
+                        pthread_mutex_unlock(&SM->dispatcherMutex);
                         break;
                   }
 
@@ -625,6 +638,8 @@ void *task_manager_dispatcher(void *p)
                               write(fd[i][1], &most_priority.tsk, sizeof(most_priority.tsk));
                               SM->taskToProcess[i] = 1;
                               pthread_cond_broadcast(&SM->edgeServerCond[i]);
+                              output_str("TASK DISPATCHED\n");
+                              pthread_mutex_unlock(&SM->dispatcherMutex);
                               break;
                         }
                   }
@@ -632,8 +647,25 @@ void *task_manager_dispatcher(void *p)
             // if task not dispatched, delete
             if (i == SM->EDGE_SERVER_NUMBER)
             {
+                  int j;
                   // delete task on position 0
+                  for (j = 0; j < SM->num_queue; j++)
+                  {
+                        if (most_priority.tsk.id == requestList[j].tsk.id)
+                        {
+                              break;
+                        }
+                  }
+
+                  for (int p = j; p < SM->num_queue - 1; p++)
+                  {
+                        requestList[p] = requestList[p + 1];
+                  }
+                  SM->num_queue--;
+                  output_str("TASK ELIMINATED: MAX EXEC TIME EXCEEDED\n");
             }
+            SM->dispatcherWork = 0;
+            pthread_mutex_unlock(&SM->dispatcherMutex);
       }
       pthread_exit(NULL);
 }
@@ -685,7 +717,7 @@ void edge_server_process(shared_memory *SM, int server_number)
 
             while (SM->taskToProcess[server_number] == 0)
             {
-                  output_str("entered cond\n");
+                  // output_str("entered cond\n");
                   pthread_cond_wait(&SM->edgeServerCond[server_number], &SM->edgeServerMutex[server_number]);
                   output_str("left cond\n");
             }
@@ -816,6 +848,7 @@ void sigtstp_handler(int signum)
 
       output_str("^Z PRESSED. PRINTING STATISTICS.\n");
       sem_wait(outputSemaphore);
+      SM->simulation_stats.unanswered_tasks = SM->num_queue;
       print_stats();
       // rest
 
@@ -826,6 +859,7 @@ void print_stats()
 {
       printf("Number of requested tasks: %d\n", SM->simulation_stats.requested_tasks);
       printf("Number of executed tasks: %d\n", SM->simulation_stats.executed_tasks);
+      printf("Number of unanswered tasks: %d\n", SM->simulation_stats.unanswered_tasks);
 }
 
 void sigint_handler(int signum)
