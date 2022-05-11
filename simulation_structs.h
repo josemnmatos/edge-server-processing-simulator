@@ -106,6 +106,6 @@ typedef struct
         int dispatcherWork;
         int schedulerWork;
         int vcpuWork;
-        pthread_cond_t vcpuCond;
+        pthread_cond_t vcpuCond;s
 
 } shared_memory;
