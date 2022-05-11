@@ -405,13 +405,14 @@ void task_manager(shared_memory *SM)
             exit(0);
       }
 
-      char task_read_string[PIPE_BUF];
+      char *task_read_string;
       task tsk;
       request req;
 
       while (1)
       {
             nread = read(taskpipe, task_read_string, PIPE_BUF);
+
             printf("%s\n", task_read_string);
             // read until pipe closes
             if (nread <= 0 || errno == EINTR)
@@ -423,7 +424,7 @@ void task_manager(shared_memory *SM)
             {
                   break;
             }
-
+            task_read_string[nread]='\0';
             task_read_string[strcspn(task_read_string, "\n")] = 0;
 
             // handle string read
@@ -439,6 +440,16 @@ void task_manager(shared_memory *SM)
                   kill(SM->sm_pid, SIGTSTP);
                   continue;
             }
+            // handle the received task string
+            char *str_id, *str_tips;
+            char str_maxet[] = "";
+            str_id = strsep(&task_read_string, ":");
+            str_tips = strsep(&task_read_string, ":");
+            strcpy(str_maxet, task_read_string);
+
+            tsk.id = atoi(str_id);
+            tsk.thousInstructPerRequest = atoi(str_tips);
+            tsk.maxExecTimeSecs = atoi(str_maxet);
 
             req.tsk = tsk;
 
