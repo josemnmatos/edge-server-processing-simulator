@@ -92,6 +92,8 @@ typedef struct
         int performance_flag;
         // system stats
         stats simulation_stats;
+        //server with minimum waiting time
+        int server;
 
         // conditions
 

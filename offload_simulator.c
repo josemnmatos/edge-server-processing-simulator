@@ -282,9 +282,19 @@ void monitor(shared_memory *SM)
             // do monitor things
             queue_rate = SM->num_queue / SM->QUEUE_POS;
             // get minimum waiting time on any vcpu
-            int minumum_waiting_time;
+            int minimum_waiting_time= SM->min_waiting[0];
+            SM->server = 1;
 
-            if ((queue_rate > 0.8) && SM->performance_flag == 0 && (minimum_wait_time > SM->MAX_WAIT))
+            //function to see the minimum in min_waiting;
+            for (int i = 1; i< SM->EDGE_SERVER_NUMBER; i++){
+                  if(SM->min_waiting[i] < minimum_waiting_time){
+                        minimum_waiting_time = SM->min_waiting[i];
+                        SM->server = i+1;
+                  }
+            }
+
+
+            if ((queue_rate > 0.8) && SM->performance_flag == 0 && (minimum_waiting_time > SM->MAX_WAIT))
             {
                   output_str("EDGE SERVERS IN HIGH PERFORMANCE\n");
                   sem_wait(semaphore);
