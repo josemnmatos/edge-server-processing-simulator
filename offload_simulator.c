@@ -52,6 +52,7 @@ time_t time2;
 int random1;
 int random2;
 
+int *vcpu_time;
 
 
 // compile with : make all
@@ -309,6 +310,9 @@ void task_manager(shared_memory *SM)
       pthread_create(&SM->taskmanager[0], NULL, task_manager_scheduler, NULL);
       pthread_create(&SM->taskmanager[1], NULL, task_manager_dispatcher, NULL);
 
+      //alocate memory for sleep time vcpu
+      vcpu_time = (int *) calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
+
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
 
@@ -408,6 +412,8 @@ void task_manager(shared_memory *SM)
       {
             wait(NULL);
       }
+      
+      free(vcpu_time);
 
       SM->simulation_stats.unanswered_tasks = SM->num_queue;
 
