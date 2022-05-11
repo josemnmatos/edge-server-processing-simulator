@@ -100,14 +100,15 @@ int main(int argc, char *argv[])
       free(SM->min_waiting);
       free(SM->EDGE_SERVERS);
       free(SM->edge_pid);
-      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++){
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
             pthread_cond_destroy(&SM->edgeServerCond[i]);
             pthread_mutex_destroy(&SM->edgeServerMutex[i]);
       }
       free(SM->edgeServerCond);
       free(SM->edgeServerMutex);
       free(SM->taskToProcess);
-      
+
       pthread_cond_destroy(&SM->vcpuCond);
 
       if (shmid >= 0)
@@ -349,7 +350,6 @@ void task_manager(shared_memory *SM)
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
       SM->taskToProcess = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
-
 
       // create SM->EDGE_SERVER_NUMBER number of pipes
       fd = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
@@ -666,9 +666,6 @@ void edge_server_process(shared_memory *SM, int server_number)
             pthread_mutex_unlock(&SM->edgeServerMutex[server_number]);
       }
 
-      pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
-      pthread_join(SM->EDGE_SERVERS[server_number].vCPU[1], NULL);
-
       // clean
       pthread_mutex_destroy(&vcpu_mutex);
 
@@ -706,7 +703,6 @@ void *vCPU_task(void *p)
                   break;
             }
             // process
-            
 
             // char msg[60];
             // sprintf(msg, "VPCU TASK COMPLETE BY THREAD %ld\n", pthread_self());
@@ -771,7 +767,7 @@ void maintenance_manager(int EDGE_SERVER_NUMBER)
 //###############################################
 
 void edge_server_handler(int signum)
-{
+{     
       output_str("EDGE SERVER LEAVING\n");
       exit(0);
 }
@@ -861,27 +857,30 @@ void end_sim()
                   pthread_cond_broadcast(&SM->vcpuCond);
             }
       }
+
       SM->performance_flag = 1;
       pthread_cond_broadcast(&SM->vcpuCond);
+      ~
 
-      /*
-      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
-      {
-            SM->taskToProcess[i] = 1;
-            pthread_cond_broadcast(&SM->edgeServerCond[i]);
-      }*/
+          /*
+          for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+          {
+                SM->taskToProcess[i] = 1;
+                pthread_cond_broadcast(&SM->edgeServerCond[i]);
+          }*/
 
-      // signal tm
-      kill(SM->c_pid[1], SIGUSR1);
+          // signal tm
+          kill(SM->c_pid[1], SIGUSR1);
       // signal mm
       kill(SM->c_pid[2], SIGUSR1);
-      //signal edge servers
-      for (int i = 0; i< SM->EDGE_SERVER_NUMBER; i++){
+      // signal edge servers
+
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
             kill(SM->edge_pid[i], SIGUSR1);
       }
 
-
-      SM->monitorWork=1;
+      SM->monitorWork = 1;
       pthread_cond_broadcast(&SM->monitorCond);
 
       sem_post(semaphore);
