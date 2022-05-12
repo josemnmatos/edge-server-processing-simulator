@@ -341,7 +341,7 @@ void monitor(shared_memory *SM)
 // TASK MANAGER
 //###############################################
 
-void task_manager(shared_memory *SM) //nao ta a funcionar bem acho 
+void task_manager(shared_memory *SM) //nao ta a funcionar bem so lê uma vez e não fecha se ainda estiver a ler fica bloqueado
 {
       // handler to shutdown task manager process
       signal(SIGUSR1, task_manager_handler);
@@ -411,8 +411,9 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem acho
 
       while (1)
       {
-
+            
             nread = read(taskpipe, task_read_string, PIPE_BUF);
+            
 
             // read until pipe closes
             if (nread <= 0 || errno == EINTR)
