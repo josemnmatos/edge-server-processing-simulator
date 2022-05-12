@@ -452,6 +452,7 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem acho
             tsk.id = atoi(str_id);
             tsk.thousInstructPerRequest = atoi(str_tips);
             tsk.maxExecTimeSecs = atoi(str_maxet);
+            printf("%d\n", tsk.id);
 
             req.tsk = tsk;
 
@@ -466,7 +467,7 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem acho
                   req.timeOfEntry = time(NULL);
                   // add request at end of queue and signal the scheduler
                   requestList[SM->num_queue++] = req; 
-                  printf("%d\n", req.tsk.id);
+                  
 
                   pthread_cond_signal(&schedulerCond);
                   pthread_cond_signal(&SM->monitorCond);
@@ -719,7 +720,7 @@ void edge_server_process(shared_memory *SM, int server_number)
             {
                   // output_str("entered cond\n");
                   pthread_cond_wait(&SM->edgeServerCond[server_number], &SM->edgeServerMutex[server_number]);
-                  output_str("left cond\n");
+                  //output_str("left cond\n");
             }
 
             close(fd[server_number][1]);
@@ -736,8 +737,8 @@ void edge_server_process(shared_memory *SM, int server_number)
       }
 
       // clean
-      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg1);
-      pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, arg2);
+      pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
+      pthread_join(SM->EDGE_SERVERS[server_number].vCPU[1], NULL);
 
       // output_str("edge server left\n");
       exit(0);
@@ -840,7 +841,13 @@ void maintenance_manager(int EDGE_SERVER_NUMBER)
 void edge_server_handler(int signum)
 {
       output_str("EDGE SERVER LEAVING\n");
-      exit(0);
+       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            SM->taskToProcess[i] = 1;
+            pthread_cond_broadcast(&SM->edgeServerCond[i]);
+      }
+
+      //exit(0);
 }
 
 void sigtstp_handler(int signum)
@@ -939,12 +946,7 @@ void end_sim()
       SM->performance_flag = 1;
       pthread_cond_broadcast(&SM->vcpuCond);
 
-      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
-      {
-            SM->taskToProcess[i] = 1;
-            pthread_cond_broadcast(&SM->edgeServerCond[i]);
-      }
-
+     
       // signal tm
       kill(SM->c_pid[1], SIGUSR1);
       // signal mm
