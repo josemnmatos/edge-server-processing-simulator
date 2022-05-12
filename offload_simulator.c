@@ -444,6 +444,7 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem so lê uma vez e n
                   continue;
             }
             // handle the received task string
+            else{
             char *str_id, *str_tips;
             char str_maxet[] = "";
             str_id = strsep(&task_read_string, ":");
@@ -454,6 +455,7 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem so lê uma vez e n
             tsk.thousInstructPerRequest = atoi(str_tips);
             tsk.maxExecTimeSecs = atoi(str_maxet);
             printf("%d\n", tsk.id);
+            
 
             req.tsk = tsk;
 
@@ -468,17 +470,18 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem so lê uma vez e n
                   req.timeOfEntry = time(NULL);
                   // add request at end of queue and signal the scheduler
                   requestList[SM->num_queue++] = req; 
+                  SM->simulation_stats.requested_tasks ++;
                   
 
                   pthread_cond_signal(&schedulerCond);
                   pthread_cond_signal(&SM->monitorCond);
             }
-            sem_post(TMSemaphore);
-
-            sem_wait(TMSemaphore);
-            pthread_cond_signal(&SM->dispatcherCond);
+            
+            //pthread_cond_signal(&SM->dispatcherCond); --n ta a funcionar bloqueia mal lê o primeiro pedido
             sem_post(TMSemaphore);
       }
+      }
+      
 
       // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
