@@ -86,7 +86,7 @@ void send_request(offload off)
                         break;
                 message.id = tasks_sent;
                 sprintf(message_str, "%d:%d:%d", message.id, message.thousInstructPerRequest, message.maxExecTimeSecs);
-                if (write(fd, message_str, PIPE_BUF) == -1)
+                if (write(fd, message_str, strlen(message_str)+1) == -1)
                 {
                         printf("ERROR: PIPE DOES NOT EXIST\n");
                         exit(1);

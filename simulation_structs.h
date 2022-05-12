@@ -47,6 +47,8 @@ typedef struct
         int executed_tasks;
         int total_anwser_time;
         int unanswered_tasks;
+        int *executed_pserver;
+        int *maintenance_pserver;
 
 } stats;
 
@@ -109,6 +111,7 @@ typedef struct
         pthread_mutex_t monitorMutex;
         pthread_mutex_t schedulerMutex;
         pthread_mutex_t vcpuMutex;
+        
         int monitorWork;
         int dispatcherWork;
         int schedulerWork;

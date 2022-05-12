@@ -4,7 +4,7 @@
 #include "simulation_structs.h"
 
 #define PIPE_NAME "TASK_PIPE"
-#define PIPE_BUF 64
+#define PIPE_BUF 100
 #define NUM_PROCESS_INI 3
 
 void system_manager(const char *config_file, pid_t sm_pid);
@@ -25,6 +25,8 @@ void task_manager_handler(int signum);
 void edge_server_handler(int signum);
 void print_stats();
 void *close_handler(void *p);
+void update_queue(request *queue, request new_element);
+void remove_from_queue(request *queue, int index);
 
 int shmid;
 shared_memory *SM;
@@ -40,7 +42,7 @@ int taskpipe;
 int maintenance_queue_id;
 
 pthread_cond_t schedulerCond = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t taskQueue = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t taskQueueMutex = PTHREAD_MUTEX_INITIALIZER;
 
 request *requestList;
 request *reqListFinal;
@@ -98,8 +100,14 @@ int main(int argc, char *argv[])
       free(requestList);
       free(reqListFinal);
 
+      free(SM->simulation_stats.executed_pserver);
+      free(SM->simulation_stats.maintenance_pserver);
+
       if (semaphore >= 0)
             sem_close(semaphore);
+
+      pthread_mutex_destroy(&taskQueueMutex);
+
       free(SM->min_waiting);
       free(SM->EDGE_SERVERS);
       free(SM->edge_pid);
@@ -192,6 +200,8 @@ void system_manager(const char *config_file, pid_t sm_pid)
       SM->num_queue = 0;
       SM->shutdown = 0;
       SM->min_waiting = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
+      SM->simulation_stats.executed_pserver = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
+      SM->simulation_stats.maintenance_pserver = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
 
       // create msg queue
       assert((maintenance_queue_id = msgget(IPC_PRIVATE, IPC_CREAT | 0700)) != -1);
@@ -341,7 +351,7 @@ void monitor(shared_memory *SM)
 // TASK MANAGER
 //###############################################
 
-void task_manager(shared_memory *SM) //nao ta a funcionar bem so lê uma vez e não fecha se ainda estiver a ler fica bloqueado
+void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e não fecha se ainda estiver a ler fica bloqueado
 {
       // handler to shutdown task manager process
       signal(SIGUSR1, task_manager_handler);
@@ -372,7 +382,6 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem so lê uma vez e n
 
       // alocate memory for requestList
       requestList = (request *)calloc(SM->QUEUE_POS, sizeof(request));
-      reqListFinal = (request *)calloc(SM->QUEUE_POS, sizeof(request));
 
       sem_post(semaphore);
 
@@ -392,96 +401,6 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem so lê uma vez e n
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
       }
-
-      TMSemaphore = (sem_t *)malloc(sizeof(sem_t *));
-      sem_init(TMSemaphore, 1, 1);
-
-      int nread;
-      // read taskpipe and send it to the queue
-      if ((taskpipe = open(PIPE_NAME, O_RDWR)) < 0)
-      {
-
-            output_str("ERROR OPENING NAMED PIPE\n");
-            exit(0);
-      }
-
-      char *task_read_string;
-      task tsk;
-      request req;
-
-      while (1)
-      {
-            
-            nread = read(taskpipe, task_read_string, PIPE_BUF);
-            
-
-            // read until pipe closes
-            if (nread <= 0 || errno == EINTR)
-            {
-                  break;
-            }
-            // only goes down here if it reads something -- pipe is open on blocking mode
-            if (SM->shutdown == 1)
-            {
-                  break;
-            }
-            task_read_string[nread] = '\0';
-            task_read_string[strcspn(task_read_string, "\n")] = 0;
-
-            // handle string read
-            if (strcmp(task_read_string, "EXIT") == 0)
-            {
-                  // send SIGINT to system manager
-                  kill(SM->sm_pid, SIGINT);
-                  fflush(NULL);
-                  continue;
-            }
-            else if (strcmp(task_read_string, "STATS") == 0)
-            {
-                  // send SIGTSTP to system manager
-                  kill(SM->sm_pid, SIGTSTP);
-                  fflush(NULL);
-                  continue;
-            }
-            // handle the received task string
-            else{
-            char *str_id, *str_tips;
-            char str_maxet[] = "";
-            str_id = strsep(&task_read_string, ":");
-            str_tips = strsep(&task_read_string, ":");
-            strcpy(str_maxet, task_read_string);
-
-            tsk.id = atoi(str_id);
-            tsk.thousInstructPerRequest = atoi(str_tips);
-            tsk.maxExecTimeSecs = atoi(str_maxet);
-            printf("%d\n", tsk.id);
-            
-
-            req.tsk = tsk;
-
-            sem_wait(TMSemaphore);
-
-            if (SM->num_queue > SM->QUEUE_POS)
-            {
-                  output_str("FULL QUEUE: TASK HAS BEEN DELETED\n");
-            }
-            else
-            {
-                  req.timeOfEntry = time(NULL);
-                  // add request at end of queue and signal the scheduler
-                  requestList[SM->num_queue++] = req; 
-                  SM->simulation_stats.requested_tasks ++;
-                  
-
-                  pthread_cond_signal(&schedulerCond);
-                  pthread_cond_signal(&SM->monitorCond);
-            }
-            
-            //pthread_cond_signal(&SM->dispatcherCond); --n ta a funcionar bloqueia mal lê o primeiro pedido
-            sem_post(TMSemaphore);
-      }
-      }
-      
 
       // wait for the threads to finish
       pthread_join(SM->taskmanager[0], NULL);
@@ -510,72 +429,140 @@ void task_manager(shared_memory *SM) //nao ta a funcionar bem so lê uma vez e n
 void *task_manager_scheduler(void *p)
 {
       output_str("TASK_MANAGER_SCHEDULER WORKING\n");
-      time_t timenow;
+
+      // char *task_read_string = (char *)calloc(sizeof(char), PIPE_BUF);
+      char *task_read_string;
+      task tsk;
+      request req;
+      int nread;
+
+      // read taskpipe and send it to the queue
+      if ((taskpipe = open(PIPE_NAME, O_RDWR)) < 0)
+      {
+
+            output_str("ERROR OPENING NAMED PIPE\n");
+            exit(0);
+      }
 
       while (1)
       {
-            pthread_mutex_lock(&SM->schedulerMutex);
-
-            while (SM->schedulerWork == 0)
-            {
-                  pthread_cond_wait(&SM->schedulerCond, &SM->schedulerMutex);
-                  SM->schedulerWork = 1;
-            }
-            // check if system shutting down
+            output_str("augh\n");
+            nread = read(taskpipe, &task_read_string, PIPE_BUF);
+            printf("%s\n", strerror(errno));
+            output_str("aosd\n");
+            // read until pipe closes
+            // only goes down here if it reads something -- pipe is open on blocking mode
             if (SM->shutdown == 1)
             {
-                  pthread_mutex_unlock(&SM->schedulerMutex);
+
                   break;
             }
-            // organizar a fila tarefa com maior prioridade vai ficar na prieira posiçao
-            request temp;
-            if (SM->num_queue > 1)
+            printf("%d\n", nread);
+
+            // task_read_string[nread] = '\0';
+            // task_read_string[strcspn(task_read_string, "\n")] = 0;
+
+            // handle string read
+            if (strcmp(task_read_string, "EXIT") == 0)
             {
-                  for (int i = 0; i < SM->num_queue; i++)
-                  {
-                        for (int j = i + 1; j < SM->num_queue; j++)
-                        {
-                              if (requestList[i].tsk.maxExecTimeSecs > requestList[j].tsk.maxExecTimeSecs)
-                              {
-                                    temp = requestList[i];
-                                    requestList[i] = requestList[j];
-                                    requestList[j] = temp;
-                              }
-                              else if (requestList[i].tsk.maxExecTimeSecs == requestList[j].tsk.maxExecTimeSecs)
-                              {
-                                    if (requestList[i].timeOfEntry > requestList[j].timeOfEntry)
-                                    {
-                                          temp = requestList[i];
-                                          requestList[i] = requestList[j];
-                                          requestList[j] = temp;
-                                    }
-                              }
-                        }
-                  }
+                  // send SIGINT to system manager
+                  kill(SM->sm_pid, SIGINT);
+                  fflush(NULL);
+                  continue;
+            }
+            else if (strcmp(task_read_string, "STATS") == 0)
+            {
+                  // send SIGTSTP to system manager
+                  kill(SM->sm_pid, SIGTSTP);
+                  fflush(NULL);
+                  continue;
             }
 
-            int j = 0;
-            int numQueueOriginal = SM->num_queue;
-
-            for (int i = 0; i < numQueueOriginal; i++)
+            else // handle the received task string
             {
-                  timenow = time(NULL);
-                  if ((requestList[i].timeOfEntry + requestList[i].tsk.maxExecTimeSecs) < timenow)
+                  output_str("augh\n");
+                  char *str_id, *str_tips;
+                  char str_maxet[] = "";
+                  str_id = strsep(&task_read_string, ":");
+                  str_tips = strsep(&task_read_string, ":");
+                  strcpy(str_maxet, task_read_string);
+
+                  tsk.id = atoi(str_id);
+                  tsk.thousInstructPerRequest = atoi(str_tips);
+                  tsk.maxExecTimeSecs = atoi(str_maxet);
+                  printf("%d\n", tsk.id);
+
+                  req.tsk = tsk;
+
+                  pthread_mutex_lock(&taskQueueMutex);
+
+                  if (SM->num_queue > SM->QUEUE_POS)
                   {
-                        reqListFinal[j] = requestList[i];
-                        j++;
+                        output_str("FULL QUEUE: TASK HAS BEEN DELETED\n");
                   }
                   else
                   {
-                        SM->num_queue--;
+                        req.timeOfEntry = time(NULL);
+                        // add request at right position of queue and see if the time has already passed
+                        update_queue(requestList, req);
+
+                        // TODO ^^
+
+                        SM->simulation_stats.requested_tasks++;
                   }
+
+                  pthread_mutex_unlock(&taskQueueMutex);
+
+                  // signal dispatcher
+                  // pthread_cond_signal(&SM->dispatcherCond);
             }
-
-            SM->schedulerWork = 0;
-
-            pthread_mutex_unlock(&SM->schedulerMutex);
-      }
+            }
+      output_str("TASK_MANAGER_SCHEDULER LEAVING\n");
       pthread_exit(NULL);
+}
+
+void remove_from_queue(request queue[], int index)
+{
+      int i;
+      for (i = index; i < SM->num_queue - 1; i++)
+      {
+            queue[i] = queue[i + 1];
+      }
+}
+
+void update_queue(request queue[], request new_element)
+{
+      // insert at end
+      queue[SM->num_queue++] = new_element;
+
+      for (int i = 0; i < SM->num_queue; i++)
+      {
+            // check if time passed
+            if (queue[i].tsk.maxExecTimeSecs > time(NULL) - queue[i].timeOfEntry)
+            {
+                  remove_from_queue(queue, i);
+            }
+      }
+
+      float i_key, j_key;
+      int i, j;
+      for (i = 1; i < SM->num_queue; i++)
+      {
+            i_key = time(NULL) - queue[i].timeOfEntry - queue[i].tsk.maxExecTimeSecs;
+
+            j = i - 1;
+
+            j_key = time(NULL) - queue[j].timeOfEntry - queue[j].tsk.maxExecTimeSecs;
+            /* Move elements of arr[0..i-1], that are
+              greater than key, to one position ahead
+              of their current position */
+            while (j >= 0 && j_key > i_key)
+            {
+                  queue[j + 1] = queue[j];
+                  j = j - 1;
+            }
+            queue[j + 1] = queue[i];
+      }
 }
 
 // checks the task with most priority can be executed by a vcpu in time inferior to MaxEXECTIME
@@ -687,6 +674,9 @@ void edge_server_process(shared_memory *SM, int server_number)
       // notify startup to maintenance manager
       signal(SIGUSR1, edge_server_handler);
 
+      // print stats for this edge server
+      // signal(SIGTSTP, edge_server_stats);
+
       // int lower_processing_vcpu_state = 0;
 
       vcpu_info *arg1 = malloc(sizeof(vcpu_info));
@@ -724,7 +714,7 @@ void edge_server_process(shared_memory *SM, int server_number)
             {
                   // output_str("entered cond\n");
                   pthread_cond_wait(&SM->edgeServerCond[server_number], &SM->edgeServerMutex[server_number]);
-                  //output_str("left cond\n");
+                  // output_str("left cond\n");
             }
 
             close(fd[server_number][1]);
@@ -784,6 +774,8 @@ void *vCPU_task(void *p)
             // sprintf(msg, "VPCU TASK COMPLETE BY THREAD %ld\n", pthread_self());
 
             // output_str(msg);
+
+            SM->simulation_stats.executed_pserver[info.server_number]++;
 
             pthread_mutex_unlock(&SM->vcpuMutex);
       }
@@ -845,13 +837,13 @@ void maintenance_manager(int EDGE_SERVER_NUMBER)
 void edge_server_handler(int signum)
 {
       output_str("EDGE SERVER LEAVING\n");
-       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             SM->taskToProcess[i] = 1;
             pthread_cond_broadcast(&SM->edgeServerCond[i]);
       }
 
-      //exit(0);
+      // exit(0);
 }
 
 void sigtstp_handler(int signum)
@@ -871,6 +863,14 @@ void print_stats()
       printf("Number of requested tasks: %d\n", SM->simulation_stats.requested_tasks);
       printf("Number of executed tasks: %d\n", SM->simulation_stats.executed_tasks);
       printf("Number of unanswered tasks: %d\n", SM->simulation_stats.unanswered_tasks);
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            printf("Server %d executed: %d tasks\n", i + 1, SM->simulation_stats.executed_pserver[i]);
+      }
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            printf("Server %d went on maintenence: %d times\n", i + 1, SM->simulation_stats.maintenance_pserver[i]);
+      }
 }
 
 void sigint_handler(int signum)
@@ -935,8 +935,6 @@ void end_sim()
 
       SM->dispatcherWork = 1;
       pthread_cond_broadcast(&SM->dispatcherCond);
-      SM->schedulerWork = 1;
-      pthread_cond_broadcast(&SM->schedulerCond);
 
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
@@ -950,13 +948,11 @@ void end_sim()
       SM->performance_flag = 1;
       pthread_cond_broadcast(&SM->vcpuCond);
 
-     
       // signal tm
-      kill(SM->c_pid[1], SIGUSR1);
+      kill(SM->taskmanager[0], SIGUSR1);
       // signal mm
       kill(SM->c_pid[2], SIGUSR1);
       // signal edge servers
-
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             kill(SM->edge_pid[i], SIGUSR1);
