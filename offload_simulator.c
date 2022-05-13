@@ -607,7 +607,7 @@ void *task_manager_dispatcher(void *p)
                   pthread_mutex_unlock(&SM->dispatcherMutex);
                   break;
             }
-            output_str("dispatcher\n");
+            
             
             // do dispatcher things
             most_priority = requestList[0];
@@ -627,16 +627,17 @@ void *task_manager_dispatcher(void *p)
                   }
                   
                   // check vcpu 1, if yes dispatch 
-                  vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity; //isto ta a dar mal da sempre 0-------------------------------------RAZAO DOS PROBLEMAS
-                  printf("-%d\n", vcpu1_instruction_capacity);
+                  vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity; 
+                  
                   
                   task_instructions = most_priority.tsk.thousInstructPerRequest * (1000);
-                  printf("--%d\n", task_instructions);
                   
-                  processing_time = (int) (task_instructions / vcpu1_instruction_capacity); // erro aqui
-                  printf("---%d\n", processing_time);
+                  
+                  processing_time = (int) (task_instructions / vcpu1_instruction_capacity); 
+                  
 
-                  /*
+                  
+                  //nao esta a entrar em nenhuma destes dois ifs
                   
 
                   // dispatch task to edge server
@@ -689,7 +690,7 @@ void *task_manager_dispatcher(void *p)
                   }
                   SM->num_queue--;
                   output_str("TASK ELIMINATED: MAX EXEC TIME EXCEEDED\n");
-                  */
+                  
             }
             
             SM->dispatcherWork = 0;
