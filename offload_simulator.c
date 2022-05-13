@@ -370,7 +370,6 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       vcpu_time = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
-      SM->EDGE_SERVERS = (edge_server *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(edge_server));
       SM->taskToProcess = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
 
       // create SM->EDGE_SERVER_NUMBER number of pipes
