@@ -23,6 +23,7 @@ void *vCPU_task(void *p);
 void maint_manager_handler(int signum);
 void task_manager_handler(int signum);
 void edge_server_handler(int signum);
+void monitor_handler(int signum);
 void print_stats();
 void *close_handler(void *p);
 void update_queue(request *queue, request new_element);
@@ -290,6 +291,7 @@ void system_manager(const char *config_file, pid_t sm_pid)
 
 void monitor(shared_memory *SM)
 {
+      signal(SIGUSR1, monitor_handler);
       SM->performance_flag = 0;
 
       float queue_rate;
@@ -928,7 +930,12 @@ void maint_manager_handler(int signum)
                   sleep(random2 - time_passed2);
             }
       }
+      output_str("MAINTENANCE MANAGER LEAVING\n");
+      exit(0);
+}
 
+void monitor_handler(int signum){
+      output_str("MONITOR LEAVING\n");
       exit(0);
 }
 
