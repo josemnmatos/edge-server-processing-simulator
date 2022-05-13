@@ -430,8 +430,8 @@ void *task_manager_scheduler(void *p)
 {
       output_str("TASK_MANAGER_SCHEDULER WORKING\n");
 
-      // char *task_read_string = (char *)calloc(sizeof(char), PIPE_BUF);
-      char *task_read_string;
+      char *task_read_string = (char *)calloc(sizeof(char), PIPE_BUF);
+      
       task tsk;
       request req;
       int nread;
@@ -446,21 +446,27 @@ void *task_manager_scheduler(void *p)
 
       while (1)
       {
-            output_str("augh\n");
-            nread = read(taskpipe, &task_read_string, PIPE_BUF);
-            printf("%s\n", strerror(errno));
-            output_str("aosd\n");
-            // read until pipe closes
-            // only goes down here if it reads something -- pipe is open on blocking mode
-            if (SM->shutdown == 1)
+            
+            nread = read(taskpipe, task_read_string, PIPE_BUF);
+
+
+            if(nread <= 0){
+                  if (SM->shutdown == 1)
             {
 
                   break;
             }
-            printf("%d\n", nread);
+            
+            }
+            
+            
+            
+            // read until pipe closes
+            // only goes down here if it reads something -- pipe is open on blocking mode
+            
 
-            // task_read_string[nread] = '\0';
-            // task_read_string[strcspn(task_read_string, "\n")] = 0;
+            task_read_string[nread] = '\0';
+            task_read_string[strcspn(task_read_string, "\n")] = 0;
 
             // handle string read
             if (strcmp(task_read_string, "EXIT") == 0)
@@ -480,7 +486,7 @@ void *task_manager_scheduler(void *p)
 
             else // handle the received task string
             {
-                  output_str("augh\n");
+                  
                   char *str_id, *str_tips;
                   char str_maxet[] = "";
                   str_id = strsep(&task_read_string, ":");
