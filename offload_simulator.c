@@ -525,7 +525,8 @@ void *task_manager_scheduler(void *p)
                   pthread_mutex_unlock(&taskQueueMutex);
 
                   // signal dispatcher
-                  // pthread_cond_signal(&SM->dispatcherCond);
+                  SM->dispatcherWork = 1;
+                  pthread_cond_signal(&SM->dispatcherCond);
             }
       }
       output_str("TASK_MANAGER_SCHEDULER LEAVING\n");
@@ -592,7 +593,7 @@ void *task_manager_dispatcher(void *p)
             while (SM->dispatcherWork == 0)
             { // condition to check if any is free
                   pthread_cond_wait(&SM->dispatcherCond, &SM->dispatcherMutex);
-                  SM->dispatcherWork = 1;
+                  
             }
             // check if system is shutting down
             if (SM->shutdown == 1)
@@ -600,9 +601,14 @@ void *task_manager_dispatcher(void *p)
                   pthread_mutex_unlock(&SM->dispatcherMutex);
                   break;
             }
+            output_str("dispatcher\n");
+            
             // do dispatcher things
-            request most_priority = reqListFinal[0];
+            request most_priority = requestList[0];
             int i;
+            
+            // TA MAL P BAIXO
+            /*
             for (i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
             {
                   // checks the task with most priority can be executed by a vcpu in time inferior to MaxEXECTIME
@@ -623,7 +629,7 @@ void *task_manager_dispatcher(void *p)
                         close(fd[i][0]);
                         write(fd[i][1], &most_priority.tsk, sizeof(most_priority.tsk));
                         SM->taskToProcess[i] = 1;
-                        pthread_cond_broadcast(&SM->edgeServerCond[i]);
+                        //pthread_cond_broadcast(&SM->edgeServerCond[i]);
                         output_str("TASK DISPATCHED\n");
                         pthread_mutex_unlock(&SM->dispatcherMutex);
                         break;
@@ -637,10 +643,10 @@ void *task_manager_dispatcher(void *p)
                         if (processing_time <= (time(NULL) - most_priority.timeOfEntry))
                         {
                               // write to pipe for execution on vcpu 2
-                              close(fd[i][0]);
-                              write(fd[i][1], &most_priority.tsk, sizeof(most_priority.tsk));
+                              //close(fd[i][0]);
+                              //write(fd[i][1], &most_priority.tsk, sizeof(most_priority.tsk));
                               SM->taskToProcess[i] = 1;
-                              pthread_cond_broadcast(&SM->edgeServerCond[i]);
+                              //pthread_cond_broadcast(&SM->edgeServerCond[i]);
                               output_str("TASK DISPATCHED\n");
                               pthread_mutex_unlock(&SM->dispatcherMutex);
                               break;
@@ -667,6 +673,7 @@ void *task_manager_dispatcher(void *p)
                   SM->num_queue--;
                   output_str("TASK ELIMINATED: MAX EXEC TIME EXCEEDED\n");
             }
+            */
             SM->dispatcherWork = 0;
             pthread_mutex_unlock(&SM->dispatcherMutex);
       }
