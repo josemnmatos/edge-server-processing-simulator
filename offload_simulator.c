@@ -474,7 +474,7 @@ void *task_manager_scheduler(void *p)
 
             task_read_string[nread] = '\0';
             task_read_string[strcspn(task_read_string, "\n")] = 0;
-            printf("message %s\n", task_read_string);
+            //printf("message %s\n", task_read_string);
 
             // handle string read
             if (strcmp(task_read_string, "EXIT") == 0)
@@ -634,14 +634,17 @@ void *task_manager_dispatcher(void *p)
                   
                   
                   processing_time = (int) (task_instructions / vcpu1_instruction_capacity); 
+                  printf("processing %d\n", processing_time);
+                  printf("time: %d - %d\n", most_priority.timeOfEntry, time(NULL));
                   
 
                   
                   //nao esta a entrar em nenhuma destes dois ifs
                   
 
-                  // dispatch task to edge server
-                  if (processing_time <= (time(NULL) - most_priority.timeOfEntry))
+                  // dispatch task to edge server  
+                  //tempo de agora - tempo de entrada tem de ser 
+                  if (processing_time <= ((time(NULL) - most_priority.timeOfEntry)+most_priority.tsk.maxExecTimeSecs))
                   {
                         // write to pipe for execution on vcpu 1
                         close(fd[i][0]);
@@ -658,7 +661,7 @@ void *task_manager_dispatcher(void *p)
                   {
                         int vcpu2_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity * (1000000);
                         float processing_time = task_instructions / vcpu2_instruction_capacity;
-                        if (processing_time <= (time(NULL) - most_priority.timeOfEntry))
+                        if (processing_time <= ((time(NULL) - most_priority.timeOfEntry)+most_priority.tsk.maxExecTimeSecs))
                         {
                               // write to pipe for execution on vcpu 2
                               //close(fd[i][0]);
