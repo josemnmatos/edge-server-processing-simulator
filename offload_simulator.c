@@ -953,7 +953,7 @@ void end_sim()
 
       // signal processes to check condition variables
       // signal tm
-      //kill(SM->taskmanager[0], SIGUSR1);
+      kill(SM->taskmanager[0], SIGUSR1);
 
 
       //signal scheduler to leave
