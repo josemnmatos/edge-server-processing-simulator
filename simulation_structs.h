@@ -27,6 +27,7 @@ typedef struct
 {
         int vcpu_number;
         int server_number;
+        int *time_process;
 } vcpu_info;
 
 typedef struct
@@ -98,6 +99,7 @@ typedef struct
         // server with minimum waiting time
         int server;
 
+        
         // conditions
 
         int *taskToProcess;
@@ -116,6 +118,6 @@ typedef struct
         int dispatcherWork;
         int schedulerWork;
         int vcpuWork;
-        pthread_cond_t vcpuCond;
+        pthread_cond_t vcpuCond[2];
 
 } shared_memory;
