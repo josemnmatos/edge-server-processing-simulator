@@ -60,6 +60,8 @@ int main(int argc, char *argv[])
                 exit(1);
         }
 
+        wait(NULL);
+
         return 0;
 }
 
@@ -67,7 +69,7 @@ void send_request(offload off)
 {
         // Tarefa: ID tarefa:Nº de instruções (em milhares):Tempo máximo para execução
 
-        int tasks_sent = 1;
+        int tasks_sent = 0;
         int fd;
         task message;
         message.maxExecTimeSecs = off.maxExecTimeSecs;
@@ -82,19 +84,21 @@ void send_request(offload off)
 
         while (1)
         {
-                if (tasks_sent == off.noOfRequests+1)
+                if (tasks_sent == off.noOfRequests)
                         break;
-                message.id = tasks_sent;
-                sprintf(message_str, "%d:%d:%d", message.id, message.thousInstructPerRequest, message.maxExecTimeSecs);
-                if (write(fd, message_str, strlen(message_str)+1) == -1)
+                // message.id = tasks_sent;
+                sprintf(message_str, "%d:%d", message.thousInstructPerRequest, message.maxExecTimeSecs);
+                if (write(fd, message_str, strlen(message_str)) == -1)
                 {
                         printf("ERROR: PIPE DOES NOT EXIST\n");
                         exit(1);
                 }
+                printf("Sent task number: %d\n", tasks_sent);
                 tasks_sent++;
                 sleep(off.intervalBetwRequests / 1000);
         }
         close(fd);
+        exit(0);
 }
 
 int validateInput(char *s)
