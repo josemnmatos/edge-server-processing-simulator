@@ -93,7 +93,8 @@ void send_request(offload off)
                         printf("ERROR: PIPE DOES NOT EXIST\n");
                         exit(1);
                 }
-                printf("Sent task number: %d\n", tasks_sent);
+                printf("Sent task number: %d- %d\n", tasks_sent, message.thousInstructPerRequest);
+
                 tasks_sent++;
                 sleep(off.intervalBetwRequests / 1000);
         }

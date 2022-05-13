@@ -475,6 +475,7 @@ void *task_manager_scheduler(void *p)
 
             task_read_string[nread] = '\0';
             task_read_string[strcspn(task_read_string, "\n")] = 0;
+            printf("message %s\n", task_read_string);
 
             // handle string read
             if (strcmp(task_read_string, "EXIT") == 0)
@@ -494,17 +495,16 @@ void *task_manager_scheduler(void *p)
 
             else // handle the received task string
             {
-                  char *msg_string = task_read_string;
-                  char *str_tips;
-                  char str_maxet[] = "";
-                  str_tips = strsep(&msg_string, ":");
-                  strcpy(str_maxet, msg_string);
+                   
+                  //isto aqui ta mal tambem MALL MAL MAL MAL MAL NAO TA A LER BEM O INPUT - ja ta bem
 
-                  tsk.id = tskid++;
-                  tsk.thousInstructPerRequest = atoi(str_tips);
-                  tsk.maxExecTimeSecs = atoi(str_maxet);
+                  char *token = strtok(task_read_string, ":");
+                  tsk.thousInstructPerRequest = atoi(token);
+                  token = strtok(NULL, ":");
+                  tsk.maxExecTimeSecs = atoi(token);
                   printf("%d\n", tsk.id);
-
+                  tsk.id = tskid++;
+                  
                   req.tsk = tsk;
 
                   pthread_mutex_lock(&taskQueueMutex);
@@ -525,6 +525,7 @@ void *task_manager_scheduler(void *p)
                   }
 
                   pthread_mutex_unlock(&taskQueueMutex);
+                  //printf("%d\n", requestList[0].tsk.thousInstructPerRequest);
 
                   // signal dispatcher
                   SM->dispatcherWork = 1;
@@ -587,6 +588,10 @@ void update_queue(request queue[], request new_element)
 void *task_manager_dispatcher(void *p)
 {
       output_str("TASK_MANAGER_DISPATCHER WORKING\n");
+      int vcpu1_instruction_capacity;
+      int task_instructions;
+      int processing_time;
+      request most_priority;
 
       while (1)
       {
@@ -606,24 +611,35 @@ void *task_manager_dispatcher(void *p)
             output_str("dispatcher\n");
             
             // do dispatcher things
-            request most_priority = requestList[0];
+            most_priority = requestList[0];
+            
             int i;
             
             // TA MAL P BAIXO
-            /*
+            
             for (i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
             {
                   // checks the task with most priority can be executed by a vcpu in time inferior to MaxEXECTIME
                   // if edge server is on maintenance skip
                   if (SM->EDGE_SERVERS[i].stopped == 1)
-                  {
-                        pthread_mutex_unlock(&SM->dispatcherMutex);
+                  { 
+                        //pthread_mutex_unlock(&SM->dispatcherMutex);  //nao podes dar unlock senao vai ficar unlocked no proximo edge server
                         continue;
                   }
-                  // check vcpu 1, if yes dispatch
-                  int vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity * (1000000);
-                  int task_instructions = most_priority.tsk.thousInstructPerRequest * (1000);
-                  float processing_time = task_instructions / vcpu1_instruction_capacity;
+                  
+                  // check vcpu 1, if yes dispatch 
+                  vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity; //isto ta a dar mal da sempre 0-------------------------------------RAZAO DOS PROBLEMAS
+                  printf("-%d\n", vcpu1_instruction_capacity);
+                  
+                  task_instructions = most_priority.tsk.thousInstructPerRequest * (1000);
+                  printf("--%d\n", task_instructions);
+                  
+                  processing_time = (int) (task_instructions / vcpu1_instruction_capacity); // erro aqui
+                  printf("---%d\n", processing_time);
+
+                  /*
+                  
+
                   // dispatch task to edge server
                   if (processing_time <= (time(NULL) - most_priority.timeOfEntry))
                   {
@@ -674,8 +690,9 @@ void *task_manager_dispatcher(void *p)
                   }
                   SM->num_queue--;
                   output_str("TASK ELIMINATED: MAX EXEC TIME EXCEEDED\n");
+                  */
             }
-            */
+            
             SM->dispatcherWork = 0;
             pthread_mutex_unlock(&SM->dispatcherMutex);
       }
