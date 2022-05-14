@@ -27,7 +27,7 @@ typedef struct
 {
         int vcpu_number;
         int server_number;
-        
+
 } vcpu_info;
 
 typedef struct
@@ -39,6 +39,7 @@ typedef struct
         int executed_tasks;
         int maintenance_counter;
         int stopped;
+        int stopped_vcpus;
 
 } edge_server;
 
@@ -69,7 +70,7 @@ typedef struct
 typedef struct
 {
         long msg_type;
-        char msg_text[100];
+        char msg_text[48];
 } message;
 
 typedef struct
@@ -100,7 +101,7 @@ typedef struct
         int server;
         // vcpu times tasks
         int **times_edgeserver;
-        
+
         // conditions
 
         int *taskToProcess;
@@ -113,15 +114,10 @@ typedef struct
         pthread_mutex_t dispatcherMutex;
         pthread_mutex_t monitorMutex;
         pthread_mutex_t schedulerMutex;
-        
-        
-
-
 
         int monitorWork;
         int dispatcherWork;
         int schedulerWork;
         int vcpuWork;
-        
 
 } shared_memory;

@@ -10,3 +10,15 @@ dentro do SYSTEMManager:fecha named pipe para nao receber mais tarefas :: espera
 
 sigstp:
 dentro do systemmanager: imprime estatisticas-- estao na shared memory
+
+
+
+signal p maintenance manager
+fecha as threads todas escreve para os edge servers parados p continuarem
+edge serves acabam se a si proprios
+
+
+
+
+falta:
+    
