@@ -27,7 +27,7 @@ typedef struct
 {
         int vcpu_number;
         int server_number;
-        int *time_process;
+        
 } vcpu_info;
 
 typedef struct

@@ -50,6 +50,9 @@ request *reqListFinal;
 // unnamedpipes
 int **fd;
 
+//vcpu times tasks
+int **times_edgeserver;
+
 int scheduler = 0;
 
 time_t time1;
@@ -210,6 +213,7 @@ void system_manager(const char *config_file, pid_t sm_pid)
       SM->min_waiting = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
       SM->simulation_stats.executed_pserver = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
       SM->simulation_stats.maintenance_pserver = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
+      
 
       // create msg queue
       assert((maintenance_queue_id = msgget(IPC_PRIVATE, IPC_CREAT | 0700)) != -1);
@@ -377,11 +381,14 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->taskToProcess = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
 
+      times_edgeserver = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int*));
+
       // create SM->EDGE_SERVER_NUMBER number of pipes
       fd = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             fd[i] = (int *)calloc(2, sizeof(int));
+            times_edgeserver[i] = (int*) calloc(2, sizeof(int));
             if (fd[i] == NULL)
             {
                   output_str("ERROR ALLOCATING MEMORY FOR UNNAMED PIPE\n");
@@ -432,7 +439,10 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       {
             wait(NULL);
       }
-
+      for (int i = 0; i<SM->EDGE_SERVER_NUMBER; i++){
+            free(times_edgeserver[i]);
+      }
+      free(times_edgeserver);
       free(vcpu_time);
 
       output_str("TASK_MANAGER CLOSING\n");
@@ -787,28 +797,7 @@ void edge_server_process(shared_memory *SM, int server_number)
                   printf("edge server %d read task with processing time %d on vcpu %d.\n", server_number, time_to_run, vcpu_to_run);
 
                   // check which vcpu is going to be ran and assign the instruction to it
-                  if (SM->EDGE_SERVERS[server_number].vCPU_1_capacity <= SM->EDGE_SERVERS[server_number].vCPU_2_capacity)
-                  {
-                        if (vcpu_to_run == 1)
-                        {
-                              arg1->time_process = &time_to_run;
-                        }
-                        else
-                        {
-                              arg2->time_process = &time_to_run;
-                        }
-                  }
-                  else
-                  {
-                        if (vcpu_to_run == 1)
-                        {
-                              arg2->time_process = &time_to_run;
-                        }
-                        else
-                        {
-                              arg1->time_process = &time_to_run;
-                        }
-                  }
+                  times_edgeserver[server_number][vcpu_to_run] = time_to_run;
 
                   //  alert vcpu
                   SM->EDGE_SERVERS[server_number].stopped= 0;
@@ -862,7 +851,7 @@ void *vCPU_task(void *p)
 
             // process
             
-            time_to_sleep = *info.time_process;
+            time_to_sleep = times_edgeserver[info.server_number][info.vcpu_number];
             printf("time to sleep %d\n", time_to_sleep);
 
             SM->simulation_stats.executed_pserver[info.server_number]++;
