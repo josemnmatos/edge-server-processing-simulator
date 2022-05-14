@@ -28,6 +28,7 @@ void print_stats();
 void *close_handler(void *p);
 void update_queue(request *queue, request new_element);
 void remove_from_queue(request *queue, int index);
+void *maintenance_thread_func(void *p);
 
 int shmid;
 shared_memory *SM;
@@ -44,14 +45,16 @@ int maintenance_queue_id;
 pthread_cond_t schedulerCond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t taskQueueMutex = PTHREAD_MUTEX_INITIALIZER;
 
+pthread_cond_t **vcpuCond;
+pthread_mutex_t **vcpuMutex;
+
 request *requestList;
 request *reqListFinal;
 
+int *maintWork;
+
 // unnamedpipes
 int **fd;
-
-//vcpu times tasks
-int **times_edgeserver;
 
 int scheduler = 0;
 
@@ -61,6 +64,16 @@ int random1;
 int random2;
 
 int *vcpu_time;
+
+// ---maintenance---
+pthread_mutex_t maint_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t max_maint_server = PTHREAD_COND_INITIALIZER;
+pthread_cond_t max_maint_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_t *maintenance_thread;
+pthread_cond_t *maint_cond;
+pthread_mutex_t *maint_cond_mutex;
+int maintenance_counter = 0;
+int maintenance_now = 0;
 
 // compile with : make all
 int main(int argc, char *argv[])
@@ -119,18 +132,28 @@ int main(int argc, char *argv[])
       free(SM->edge_pid);
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
+            pthread_cond_destroy(&vcpuCond[i][0]);
+            pthread_cond_destroy(&vcpuCond[i][1]);
+            pthread_mutex_destroy(&vcpuMutex[i][0]);
+            pthread_mutex_destroy(&vcpuMutex[i][1]);
             pthread_cond_destroy(&SM->edgeServerCond[i]);
             pthread_mutex_destroy(&SM->edgeServerMutex[i]);
       }
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            free(vcpuCond[i]);
+            free(vcpuMutex[i]);
+            free(SM->times_edgeserver[i]);
+      }
+      free(SM->times_edgeserver);
+
+      free(vcpuCond);
+      free(vcpuMutex);
       free(SM->edgeServerCond);
       free(SM->edgeServerMutex);
       free(SM->taskToProcess);
 
       unlink(PIPE_NAME);
-
-      pthread_mutex_destroy(&SM->vcpuMutex);
-      pthread_cond_destroy(&SM->vcpuCond[0]);
-      pthread_cond_destroy(&SM->vcpuCond[1]);
 
       if (shmid >= 0)
             shmctl(shmid, IPC_RMID, NULL);
@@ -178,6 +201,14 @@ void system_manager(const char *config_file, pid_t sm_pid)
       SM->edgeServerCond = (pthread_cond_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pthread_cond_t));
       SM->edgeServerMutex = (pthread_mutex_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pthread_mutex_t));
 
+      vcpuCond = (pthread_cond_t **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pthread_cond_t *));
+      vcpuMutex = (pthread_mutex_t **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pthread_mutex_t *));
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            vcpuCond[i] = (pthread_cond_t *)calloc(2, sizeof(pthread_cond_t));
+            vcpuMutex[i] = (pthread_mutex_t *)calloc(2, sizeof(pthread_mutex_t));
+      }
+
       pthread_mutexattr_t attrmutex;
       pthread_condattr_t attrcondv;
       /* Initialize attribute of mutex. */
@@ -197,11 +228,6 @@ void system_manager(const char *config_file, pid_t sm_pid)
       pthread_cond_init(&SM->dispatcherCond, &attrcondv);
       pthread_mutex_init(&SM->dispatcherMutex, &attrmutex);
 
-      pthread_cond_init(&SM->vcpuCond[0], &attrcondv);
-      pthread_cond_init(&SM->vcpuCond[1], &attrcondv);
-      
-      pthread_mutex_init(&SM->vcpuMutex, &attrmutex);
-
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             pthread_cond_init(&SM->edgeServerCond[i], &attrcondv);
@@ -213,7 +239,11 @@ void system_manager(const char *config_file, pid_t sm_pid)
       SM->min_waiting = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
       SM->simulation_stats.executed_pserver = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
       SM->simulation_stats.maintenance_pserver = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
-      
+      SM->times_edgeserver = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            SM->times_edgeserver[i] = (int *)calloc(2, sizeof(int));
+      }
 
       // create msg queue
       assert((maintenance_queue_id = msgget(IPC_PRIVATE, IPC_CREAT | 0700)) != -1);
@@ -381,14 +411,11 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
       SM->taskToProcess = (int *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int));
 
-      times_edgeserver = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int*));
-
       // create SM->EDGE_SERVER_NUMBER number of pipes
       fd = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             fd[i] = (int *)calloc(2, sizeof(int));
-            times_edgeserver[i] = (int*) calloc(2, sizeof(int));
             if (fd[i] == NULL)
             {
                   output_str("ERROR ALLOCATING MEMORY FOR UNNAMED PIPE\n");
@@ -439,10 +466,11 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       {
             wait(NULL);
       }
-      for (int i = 0; i<SM->EDGE_SERVER_NUMBER; i++){
-            free(times_edgeserver[i]);
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            free(SM->times_edgeserver[i]);
       }
-      free(times_edgeserver);
+      free(SM->times_edgeserver);
       free(vcpu_time);
 
       output_str("TASK_MANAGER CLOSING\n");
@@ -634,12 +662,11 @@ void *task_manager_dispatcher(void *p)
                   // if edge server is on maintenance skip
                   if (SM->EDGE_SERVERS[i].stopped == 1)
                   {
-                        // pthread_mutex_unlock(&SM->dispatcherMutex);  //nao podes dar unlock senao vai ficar unlocked no proximo edge server
                         continue;
                   }
 
                   // check vcpu 1, if yes dispatch
-                  vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity;
+                  vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity * (1000000);
 
                   task_instructions = most_priority.tsk.thousInstructPerRequest * (1000);
 
@@ -750,6 +777,13 @@ void edge_server_process(shared_memory *SM, int server_number)
       sem_wait(semaphore);
       // check which vcpu has the lowest processing capacity
 
+      // initiate cond and mutex for each vcpu of current edge server
+      for (int i = 0; i < 2; i++)
+      {
+            pthread_mutex_init(&vcpuMutex[server_number][i], NULL);
+            pthread_cond_init(&vcpuCond[server_number][i], NULL);
+      }
+
       if (SM->EDGE_SERVERS[server_number].vCPU_1_capacity <= SM->EDGE_SERVERS[server_number].vCPU_2_capacity)
       {
             pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg1);
@@ -767,7 +801,7 @@ void edge_server_process(shared_memory *SM, int server_number)
       int vcpu_to_run;
       close(fd[server_number][1]);
 
-      while (1)
+      while (1) // nao é espera ativa pq esta aberto p escrita do outro lado mas onde se meter a leitura do message queue
       {
 
             pthread_mutex_lock(&SM->edgeServerMutex[server_number]);
@@ -797,11 +831,11 @@ void edge_server_process(shared_memory *SM, int server_number)
                   printf("edge server %d read task with processing time %d on vcpu %d.\n", server_number, time_to_run, vcpu_to_run);
 
                   // check which vcpu is going to be ran and assign the instruction to it
-                  times_edgeserver[server_number][vcpu_to_run] = time_to_run;
+                  SM->times_edgeserver[server_number][vcpu_to_run] = time_to_run;
 
                   //  alert vcpu
-                  SM->EDGE_SERVERS[server_number].stopped= 0;
-                  pthread_cond_broadcast(&SM->vcpuCond[vcpu_to_run]);
+                  SM->EDGE_SERVERS[server_number].stopped = 0;
+                  pthread_cond_broadcast(&vcpuCond[server_number][vcpu_to_run]);
             }
             pthread_mutex_unlock(&SM->edgeServerMutex[server_number]);
       }
@@ -821,48 +855,42 @@ void *vCPU_task(void *p)
       // TODO: know what vcpu it is recieves as argument in create
       // do for the task that is still going, to finish
       int time_to_sleep;
-      SM->EDGE_SERVERS[info.server_number].stopped = 1;
+
+      // SM->EDGE_SERVERS[info.server_number].stopped = 1;
 
       while (1)
       {
-            pthread_mutex_lock(&SM->vcpuMutex);
-
-            // check if edge server has entered maintenance
-            while (SM->EDGE_SERVERS[info.server_number].stopped == 1)
+            pthread_mutex_lock(&vcpuMutex[info.server_number][info.vcpu_number]);
+            // wait until vcpu has been assigned a task or is shutting down
+            while (SM->times_edgeserver[info.server_number][info.vcpu_number] == 0)
             {
-                  pthread_cond_wait(&SM->vcpuCond[info.vcpu_number], &SM->vcpuMutex);
+                  pthread_cond_wait(&vcpuCond[info.server_number][info.vcpu_number], &vcpuMutex[info.server_number][info.vcpu_number]);
             }
+            // check if is shutting down
             if (SM->shutdown == 1)
             {
-                  pthread_mutex_unlock(&SM->vcpuMutex);
+                  pthread_mutex_unlock(&vcpuMutex[info.server_number][info.vcpu_number]);
                   break;
             }
-            /*
-            // condition to lock highest performing vcpu when on normal mode
-            while (SM->performance_flag == 0 && info.vcpu_number == 2)
-            {
-                  pthread_cond_wait(&SM->vcpuCond, &SM->vcpuMutex);
-            }
-            if (SM->shutdown == 1)
-            {
-                  pthread_mutex_unlock(&SM->vcpuMutex);
-                  break;
-            }*/
 
-            // process
-            
-            time_to_sleep = times_edgeserver[info.server_number][info.vcpu_number];
+            // perform task
+
+            time_to_sleep = SM->times_edgeserver[info.server_number][info.vcpu_number];
             printf("time to sleep %d\n", time_to_sleep);
+            sleep(time_to_sleep);
 
             SM->simulation_stats.executed_pserver[info.server_number]++;
 
+            // check again if shutting down in case simulation begins shutting down while vcpu performing task
             if (SM->shutdown == 1)
             {
-                  pthread_mutex_unlock(&SM->vcpuMutex);
+                  pthread_mutex_unlock(&vcpuMutex[info.server_number][info.vcpu_number]);
                   break;
             }
-            
-            pthread_mutex_unlock(&SM->vcpuMutex);
+
+            // reset the time so it waits for next vcpu task assignment
+            SM->times_edgeserver[info.server_number][info.vcpu_number] = 0;
+            pthread_mutex_unlock(&vcpuMutex[info.server_number][info.vcpu_number]);
       }
       output_str("vcpu left\n");
       free(p);
@@ -877,42 +905,138 @@ void maintenance_manager(int EDGE_SERVER_NUMBER)
 {
       signal(SIGUSR1, maint_manager_handler);
       output_str("MAINTENANCE MANAGER WORKING\n");
-      int maintenance_counter = 0;
-      message send, receive;
-      while (1)
-      {
 
-            // send message to server
-            sprintf(send.msg_text, "MAINTENANCE;%d", maintenance_counter);
-            // one edge server at a time
-            send.msg_type = maintenance_counter % EDGE_SERVER_NUMBER;
-            msgsnd(maintenance_queue_id, &send, sizeof(send), 0);
-            // wait on message from server of type to enter maintenance
-            msgrcv(maintenance_queue_id, &receive, sizeof(receive), send.msg_type, 0);
-            if (strcmp(receive.msg_text, "READY") == 0)
-            {
-                  // enter maintenance
-                  random1 = (rand() % 5) + 1;
-                  time1 = time(NULL);
-                  sleep(random1);
-                  // send message to continue
-                  strcpy(send.msg_text, "CONTINUE");
-                  msgsnd(maintenance_queue_id, &send, sizeof(send), 0);
-                  maintenance_counter++;
-                  // maintenance interval
-                  random2 = (rand() % 5) + 1;
-                  time2 = time(NULL);
-                  sleep(random2);
-            }
-            else
-            {
-                  output_str("SERVER MAINTENANCE FAILED");
-                  exit(0);
-            }
+      maintWork = (int *)calloc(EDGE_SERVER_NUMBER, sizeof(int));
+      maint_cond = (pthread_cond_t *)calloc(EDGE_SERVER_NUMBER, sizeof(pthread_cond_t));
+      maint_cond_mutex = (pthread_mutex_t *)calloc(EDGE_SERVER_NUMBER, sizeof(pthread_mutex_t));
+      maintenance_thread = (pthread_t *)calloc(EDGE_SERVER_NUMBER, sizeof(pthread_t));
+
+      for (int i = 0; i < EDGE_SERVER_NUMBER; i++)
+      {
+            pthread_cond_init(&maint_cond[i], NULL);
+            pthread_mutex_init(&maint_cond_mutex[i], NULL);
+            int *arg1 = malloc(sizeof(int));
+            *arg1 = i;
+            pthread_create(&maintenance_thread[i], NULL, &maintenance_thread_func, arg1);
       }
+      int chosen_server;
+
+      while (1)
+      { // em vez do while de baixo talvez por aqui uma cond que cada thread manda signal quando acaba para ver se o numero de manutencoes atual baixou
+            // falta a parte da manutencao no edge server em si
+            while (maintenance_now >= EDGE_SERVER_NUMBER - 1)
+            {
+            }
+
+            //    ESPERA ATIVA????
+            output_str("maintenance manager begin 1\n");
+            pthread_mutex_lock(&maint_mutex);
+            // make sure not all servers are in maintenance
+
+            // pick server for maintenance
+
+            chosen_server = maintenance_counter % EDGE_SERVER_NUMBER;
+            printf("%d\n", chosen_server);
+            thread_mutex_unlock(&maint_mutex);
+            // signal cond for maintenance thread of chosen server and change flag
+            maintWork[chosen_server] = 1;
+            thread_cond_broadcast(&maint_cond[chosen_server]);
+            utput_str("maintenance manager signal 1\n");
+
+            // interval until next maintenance
+            int time_to_next_maintenance = (rand() % 5) + 1;
+            time2 = time(NULL);
+            sleep(time_to_next_maintenance);
+      }
+      
+      for (int i = 0; i < EDGE_SERVER_NUMBER; i++)
+      {
+            pthread_join(maintenance_thread[i], NULL);
+      }
+
+      free(maint_cond);
+      free(maint_cond_mutex);
+      free(maintWork);
+      free(maintenance_thread);
 
       output_str("MAINTENANCE MANAGER CLOSED\n");
       exit(0);
+}
+
+//###############################################
+// maintenance threads
+//###############################################
+
+void *maintenance_thread_func(void *p)
+{
+      int server_number = *((int *)p);
+      // set message characteristics
+      message enter_maintenance, server_continue, receive;
+      strcpy(enter_maintenance.msg_text, "MAINTENANCE");
+      enter_maintenance.msg_type = server_number;
+      strcpy(server_continue.msg_text, "CONTINUE");
+      server_continue.msg_type = server_number;
+      char print[40];
+
+      while (1)
+      {
+            pthread_mutex_lock(&maint_cond_mutex[server_number]);
+            while (maintWork[server_number] == 0)
+            {
+                  pthread_cond_wait(&maint_cond[server_number], &maint_cond_mutex[server_number]);
+            }
+            pthread_mutex_unlock(&maint_cond_mutex[server_number]);
+
+            if (SM->shutdown == 1)
+            {
+                  break;
+            }
+            // increment maintenance now counter
+            pthread_mutex_lock(&maint_mutex);
+            maintenance_now++;
+            maintenance_counter++;
+            pthread_mutex_unlock(&maint_mutex);
+
+            // put server to maintenance
+            msgsnd(maintenance_queue_id, &enter_maintenance, sizeof(message), IPC_NOWAIT);
+            printf("auuuughhhhh\n");
+            // wait for ready message
+            msgrcv(maintenance_queue_id, &receive, sizeof(message), server_number, 0);
+            // check received message from server
+            if (strcmp(receive.msg_text, "READY") == 0)
+            {
+                  sprintf(print, "EDGE SERVER %d ENTERED MAINTENANCE\n", server_number);
+                  output_str(print);
+
+                  // maintain
+                  random1 = (rand() % 5) + 1;
+                  time1 = time(NULL);
+                  sleep(random1);
+
+                  // send message to continue
+                  msgsnd(maintenance_queue_id, &server_continue, sizeof(message), 0);
+                  sprintf(print, "EDGE SERVER %d LEFT MAINTENANCE\n", server_number);
+                  output_str(print);
+
+                  // increase maint counter and decrease current maint counter
+                  pthread_mutex_lock(&maint_mutex);
+                  maintenance_now--;
+
+                  // set flag to 0 so it locks in the cond wait
+                  maintWork[server_number] = 0;
+                  pthread_mutex_unlock(&maint_mutex);
+            }
+            else
+            {
+                  output_str("MAINTENANCE FAILED\n");
+                  pthread_mutex_lock(&maint_mutex);
+                  maintenance_now--;
+                  maintWork[server_number] = 0;
+                  pthread_mutex_unlock(&maint_mutex);
+            }
+      }
+      free(p);
+      pthread_exit(NULL);
 }
 
 //###############################################
@@ -921,6 +1045,16 @@ void maintenance_manager(int EDGE_SERVER_NUMBER)
 
 void edge_server_handler(int signum)
 {
+      // signal all vcpus so they check the shutdown flag
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            SM->EDGE_SERVERS[i].stopped = 0;
+            SM->times_edgeserver[i][0] = 1;
+            SM->times_edgeserver[i][1] = 1;
+            pthread_cond_broadcast(&vcpuCond[i][0]);
+            pthread_cond_broadcast(&vcpuCond[i][1]);
+      }
+
       output_str("EDGE SERVER LEAVING\n");
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
@@ -938,7 +1072,6 @@ void sigtstp_handler(int signum)
       sem_wait(outputSemaphore);
       SM->simulation_stats.unanswered_tasks = SM->num_queue;
       print_stats();
-      // rest
 
       sem_post(outputSemaphore);
 }
@@ -1022,30 +1155,17 @@ void end_sim()
       // dispacher and
       SM->shutdown = 1;
 
-      // for both cpus to check shutdown condition
-
       // signal processes to check condition variables
       // signal tm
       kill(SM->taskmanager[0], SIGUSR1);
 
-      // signal scheduler to leave
+      // scheduler leaves with task pipe closure
 
       // signal dispatcher to leave
       SM->dispatcherWork = 1;
-      pthread_cond_broadcast(&SM->dispatcherCond);
-
-      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
-      {
-            if (SM->EDGE_SERVERS[i].stopped == 1)
-            {
-                  SM->EDGE_SERVERS[i].stopped = 0;
-                  pthread_cond_broadcast(&SM->vcpuCond[0]);
-                  pthread_cond_broadcast(&SM->vcpuCond[1]);
-            }
-      }
-/*
-      SM->performance_flag = 1;
-      pthread_cond_broadcast(&SM->vcpuCond[0]);*/
+      pthread_cond_broadcast(&SM->dispatcherCond); /*
+             SM->performance_flag = 1;
+             pthread_cond_broadcast(&SM->vcpuCond[0]);*/
 
       // signal mm
       kill(SM->c_pid[2], SIGUSR1);

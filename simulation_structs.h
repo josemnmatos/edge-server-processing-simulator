@@ -98,7 +98,8 @@ typedef struct
         stats simulation_stats;
         // server with minimum waiting time
         int server;
-
+        // vcpu times tasks
+        int **times_edgeserver;
         
         // conditions
 
@@ -112,12 +113,15 @@ typedef struct
         pthread_mutex_t dispatcherMutex;
         pthread_mutex_t monitorMutex;
         pthread_mutex_t schedulerMutex;
-        pthread_mutex_t vcpuMutex;
         
+        
+
+
+
         int monitorWork;
         int dispatcherWork;
         int schedulerWork;
         int vcpuWork;
-        pthread_cond_t vcpuCond[2];
+        
 
 } shared_memory;
