@@ -954,13 +954,16 @@ void *messageQueueReader(void *p)
 {
       int server_number = *((int *)p);
       output_str("MAINTENANCE THREAD IN SERVER BEGAN\n");
+      int SEND_MSG_TYPE = server_number + SM->EDGE_SERVER_NUMBER;
+      int RECEIVE_MSG_TYPE = server_number;
+
       message ready, receive;
       strcpy(ready.msg_text, "READY");
-      ready.msg_type = server_number;
+      ready.msg_type = SEND_MSG_TYPE;
       while (1)
       {
             // block until it receives maintenance message
-            msgrcv(message_queue_id, &receive, sizeof(message), server_number, 0);
+            msgrcv(message_queue_id, &receive, sizeof(message), RECEIVE_MSG_TYPE, 0);
             printf("%s\n", receive.msg_text);
             if (strcmp(receive.msg_text, "MAINTENANCE") == 0)
             {
@@ -977,7 +980,7 @@ void *messageQueueReader(void *p)
                   // server is ready for maintenance
                   msgsnd(message_queue_id, &ready, sizeof(message), 0);
                   // wait for continue
-                  msgrcv(message_queue_id, &receive, sizeof(message), server_number, 0);
+                  msgrcv(message_queue_id, &receive, sizeof(message), RECEIVE_MSG_TYPE, 0);
                   if (strcmp(receive.msg_text, "CONTINUE") == 0)
                   {
                         SM->EDGE_SERVERS[server_number].stopped = 1;
@@ -1013,7 +1016,6 @@ void maintenance_manager()
       while (1)
       {
             msgrcv(message_queue_id, &server_creation, sizeof(message), -2, 0);
-            printf("%s\n", server_creation.msg_text);
             if (strcmp(server_creation.msg_text, "EDGE SERVER CREATED") == 0)
             {
                   EDGE_SERVER_NUMBER++;
@@ -1038,8 +1040,10 @@ void maintenance_manager()
       {
             pthread_cond_init(&maint_cond[i], NULL);
             pthread_mutex_init(&maint_cond_mutex[i], NULL);
-            int *arg1 = malloc(sizeof(int));
-            *arg1 = i;
+            maint_thread_info *arg1 = malloc(sizeof(maint_thread_info));
+            arg1->server_number = i;
+            arg1->total_server_number = EDGE_SERVER_NUMBER;
+
             pthread_create(&maintenance_thread[i], NULL, &maintenance_thread_func, arg1);
       }
       int chosen_server;
@@ -1055,7 +1059,6 @@ void maintenance_manager()
             }
             pthread_mutex_unlock(&max_maint_mutex);
 
-            output_str("maintenance manager begin 1\n");
             pthread_mutex_lock(&maint_mutex);
             // make sure not all servers are in maintenance
 
@@ -1067,7 +1070,7 @@ void maintenance_manager()
             // signal cond for maintenance thread of chosen server and change flag
             maintWork[chosen_server] = 1;
             pthread_cond_broadcast(&maint_cond[chosen_server]);
-            output_str("maintenance manager signal 1\n");
+            output_str("maintenance manager signaled server for maintenance\n");
 
             // interval until next maintenance
             int time_to_next_maintenance = (rand() % 5) + 1;
@@ -1096,23 +1099,26 @@ void maintenance_manager()
 void *maintenance_thread_func(void *p)
 {
       // signal(SIGUSR1, SIG_IGN);
-      int server_number = *((int *)p);
+      maint_thread_info info = *((maint_thread_info *)p);
       // set message characteristics
+      int RECEIVE_MSG_TYPE = info.server_number + info.total_server_number;
+      int SEND_MSG_TYPE = info.server_number;
+
       message enter_maintenance, server_continue, receive;
       strcpy(enter_maintenance.msg_text, "MAINTENANCE");
-      enter_maintenance.msg_type = server_number;
+      enter_maintenance.msg_type = SEND_MSG_TYPE;
       strcpy(server_continue.msg_text, "CONTINUE");
-      server_continue.msg_type = server_number;
+      server_continue.msg_type = SEND_MSG_TYPE;
       char print[40];
 
       while (1)
       {
-            pthread_mutex_lock(&maint_cond_mutex[server_number]);
-            while (maintWork[server_number] == 0)
+            pthread_mutex_lock(&maint_cond_mutex[info.server_number]);
+            while (maintWork[info.server_number] == 0)
             {
-                  pthread_cond_wait(&maint_cond[server_number], &maint_cond_mutex[server_number]);
+                  pthread_cond_wait(&maint_cond[info.server_number], &maint_cond_mutex[info.server_number]);
             }
-            pthread_mutex_unlock(&maint_cond_mutex[server_number]);
+            pthread_mutex_unlock(&maint_cond_mutex[info.server_number]);
 
             if (SM->shutdown == 1)
             {
@@ -1128,12 +1134,12 @@ void *maintenance_thread_func(void *p)
             msgsnd(message_queue_id, &enter_maintenance, sizeof(message), 0); // 0 to block if theres no space available
             printf("auuuughhhhh\n");
             // wait for ready message
-            msgrcv(message_queue_id, &receive, sizeof(message), server_number, 0);
+            msgrcv(message_queue_id, &receive, sizeof(message), RECEIVE_MSG_TYPE, 0);
             printf("MESSAGE RECEIVED: %s\n", receive.msg_text);
             // check received message from server
             if (strcmp(receive.msg_text, "READY") == 0)
             {
-                  sprintf(print, "EDGE SERVER %d ENTERED MAINTENANCE\n", server_number);
+                  sprintf(print, "EDGE SERVER %d ENTERED MAINTENANCE\n", info.server_number);
                   output_str(print);
 
                   // maintain
@@ -1143,7 +1149,7 @@ void *maintenance_thread_func(void *p)
 
                   // send message to continue
                   msgsnd(message_queue_id, &server_continue, sizeof(message), 0);
-                  sprintf(print, "EDGE SERVER %d LEFT MAINTENANCE\n", server_number);
+                  sprintf(print, "EDGE SERVER %d LEFT MAINTENANCE\n", info.server_number);
                   output_str(print);
 
                   // increase maint counter and decrease current maint counter
@@ -1151,7 +1157,7 @@ void *maintenance_thread_func(void *p)
                   maintenance_now--;
                   pthread_cond_signal(&max_maint_server);
                   // set flag to 0 so it locks in the cond wait
-                  maintWork[server_number] = 0;
+                  maintWork[info.server_number] = 0;
                   pthread_mutex_unlock(&maint_mutex);
             }
             else
@@ -1160,7 +1166,7 @@ void *maintenance_thread_func(void *p)
                   pthread_mutex_lock(&maint_mutex);
                   maintenance_now--;
                   pthread_cond_signal(&max_maint_server);
-                  maintWork[server_number] = 0;
+                  maintWork[info.server_number] = 0;
                   pthread_mutex_unlock(&maint_mutex);
             }
       }

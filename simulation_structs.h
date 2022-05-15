@@ -26,6 +26,12 @@ José Miguel Norte de Matos 2020217977
 
 typedef struct
 {
+        int total_server_number;
+        int server_number;
+} maint_thread_info;
+
+typedef struct
+{
         int vcpu_number;
         int server_number;
 
