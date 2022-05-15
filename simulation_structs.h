@@ -23,6 +23,7 @@ José Miguel Norte de Matos 2020217977
 
 #define NUM_PROCESS_INI 3
 
+
 typedef struct
 {
         int vcpu_number;

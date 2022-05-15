@@ -13,7 +13,7 @@ void *task_manager_scheduler(void *p);
 void *task_manager_dispatcher(void *p);
 void edge_server_process(shared_memory *SM, int server_number);
 void monitor(shared_memory *SM);
-void maintenance_manager(int EDGE_SERVER_NUMBER);
+void maintenance_manager();
 void get_running_config(FILE *ptr, shared_memory *SM);
 void sigint_handler(int signum);
 void sigtstp_handler(int signum);
@@ -41,7 +41,7 @@ pthread_mutex_t sm_mutex;
 FILE *config_ptr, *log_ptr;
 
 int taskpipe;
-int maintenance_queue_id;
+int message_queue_id;
 
 // pthread_cond_t *schedulerCond;
 pthread_mutex_t taskQueueMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -70,7 +70,7 @@ int *vcpu_time;
 pthread_t *server_thread_for_maintenance;
 pthread_cond_t *message_queue_cond;
 pthread_mutex_t *message_queue_mutex;
-
+//--------------------
 // ---maintenance---
 pthread_mutex_t maint_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t max_maint_server = PTHREAD_COND_INITIALIZER;
@@ -80,7 +80,7 @@ pthread_cond_t *maint_cond;
 pthread_mutex_t *maint_cond_mutex;
 int maintenance_counter = 0;
 int maintenance_now = 0;
-
+//--------------------
 // compile with : make all
 int main(int argc, char *argv[])
 {
@@ -268,7 +268,7 @@ void system_manager(const char *config_file, pid_t sm_pid)
       }
 
       // create msg queue
-      assert((maintenance_queue_id = msgget(IPC_PRIVATE, IPC_CREAT | 0700)) != -1);
+      assert((message_queue_id = msgget(IPC_PRIVATE, IPC_CREAT | 0700)) != -1);
 
       // create named pipe
 
@@ -469,6 +469,7 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
                   output_str("ERROR CREATING EDGE SERVER\n");
             }
       }
+
       // read taskpipe and send it to the queue
       if ((taskpipe = open(PIPE_NAME, O_RDWR)) < 0)
       {
@@ -478,6 +479,12 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       }
 
       signal(SIGUSR1, task_manager_handler);
+
+      // inform maint manager ALL edge servers were created
+      message creation;
+      strcpy(creation.msg_text, "END");
+      creation.msg_type = 2;
+      msgsnd(message_queue_id, &creation, sizeof(message), 0);
 
       pthread_join(SM->taskmanager[1], NULL);
       output_str("TASK_MANAGER_DISPATCHER CLOSED\n");
@@ -777,6 +784,11 @@ void *task_manager_dispatcher(void *p)
 
 void edge_server_process(shared_memory *SM, int server_number)
 {
+      // inform maint manager that edge server was created
+      message creation;
+      strcpy(creation.msg_text, "EDGE SERVER CREATED");
+      creation.msg_type = 1;
+      msgsnd(message_queue_id, &creation, sizeof(message), 0);
 
       signal(SIGUSR1, edge_server_handler);
 
@@ -949,7 +961,7 @@ void *messageQueueReader(void *p)
       while (1)
       {
             // block until it receives maintenance message
-            msgrcv(maintenance_queue_id, &receive, sizeof(message), server_number, 0);
+            msgrcv(message_queue_id, &receive, sizeof(message), server_number, 0);
             printf("%s\n", receive.msg_text);
             if (strcmp(receive.msg_text, "MAINTENANCE") == 0)
             {
@@ -964,9 +976,9 @@ void *messageQueueReader(void *p)
                         pthread_cond_wait(&message_queue_cond[server_number], &message_queue_mutex[server_number]);
                   }
                   // server is ready for maintenance
-                  msgsnd(maintenance_queue_id, &ready, sizeof(message), 0);
+                  msgsnd(message_queue_id, &ready, sizeof(message), 0);
                   // wait for continue
-                  msgrcv(maintenance_queue_id, &receive, sizeof(message), server_number, 0);
+                  msgrcv(message_queue_id, &receive, sizeof(message), server_number, 0);
                   if (strcmp(receive.msg_text, "CONTINUE") == 0)
                   {
                         SM->EDGE_SERVERS[server_number].stopped = 1;
@@ -991,16 +1003,38 @@ void *messageQueueReader(void *p)
 // MAINTENANCE MANAGER
 //###############################################
 
-void maintenance_manager(int EDGE_SERVER_NUMBER)
+void maintenance_manager()
 {
       signal(SIGUSR1, maint_manager_handler);
       output_str("MAINTENANCE MANAGER WORKING\n");
 
+      message server_creation;
+      int EDGE_SERVER_NUMBER = 0;
+      // while not all edge servers are created receive msg
+      while (1)
+      {
+            msgrcv(message_queue_id, &server_creation, sizeof(message), -2, 0);
+            printf("%s\n", server_creation.msg_text);
+            if (strcmp(server_creation.msg_text, "EDGE SERVER CREATED") == 0)
+            {
+                  EDGE_SERVER_NUMBER++;
+            }
+            else if (strcmp(server_creation.msg_text, "END") == 0)
+            {
+                  char print[60];
+                  sprintf(print, "MAINT.M :ALL EDGE SERVERS CREATED: %d IN TOTAL\n", EDGE_SERVER_NUMBER);
+                  output_str(print);
+                  break;
+            }
+      }
+
+      // allocate memory
       maintWork = (int *)calloc(EDGE_SERVER_NUMBER, sizeof(int));
       maint_cond = (pthread_cond_t *)calloc(EDGE_SERVER_NUMBER, sizeof(pthread_cond_t));
       maint_cond_mutex = (pthread_mutex_t *)calloc(EDGE_SERVER_NUMBER, sizeof(pthread_mutex_t));
       maintenance_thread = (pthread_t *)calloc(EDGE_SERVER_NUMBER, sizeof(pthread_t));
 
+      /// create threads to maintain each server
       for (int i = 0; i < EDGE_SERVER_NUMBER; i++)
       {
             pthread_cond_init(&maint_cond[i], NULL);
@@ -1011,6 +1045,7 @@ void maintenance_manager(int EDGE_SERVER_NUMBER)
       }
       int chosen_server;
 
+      // loop to indicate threads to enter maintenance
       while (1)
       { // em vez do while de baixo talvez por aqui uma cond que cada thread manda signal quando acaba para ver se o numero de manutencoes atual baixou
             // falta a parte da manutencao no edge server em si
@@ -1091,10 +1126,10 @@ void *maintenance_thread_func(void *p)
             pthread_mutex_unlock(&maint_mutex);
 
             // put server to maintenance
-            msgsnd(maintenance_queue_id, &enter_maintenance, sizeof(message), 0); // 0 to block if theres no space available
+            msgsnd(message_queue_id, &enter_maintenance, sizeof(message), 0); // 0 to block if theres no space available
             printf("auuuughhhhh\n");
             // wait for ready message
-            msgrcv(maintenance_queue_id, &receive, sizeof(message), server_number, 0);
+            msgrcv(message_queue_id, &receive, sizeof(message), server_number, 0);
             printf("MESSAGE RECEIVED: %s\n", receive.msg_text);
             // check received message from server
             if (strcmp(receive.msg_text, "READY") == 0)
@@ -1108,7 +1143,7 @@ void *maintenance_thread_func(void *p)
                   sleep(random1);
 
                   // send message to continue
-                  msgsnd(maintenance_queue_id, &server_continue, sizeof(message), 0);
+                  msgsnd(message_queue_id, &server_continue, sizeof(message), 0);
                   sprintf(print, "EDGE SERVER %d LEFT MAINTENANCE\n", server_number);
                   output_str(print);
 
@@ -1264,9 +1299,7 @@ void end_sim()
              pthread_cond_broadcast(&SM->vcpuCond[0]);*/
       output_str("2\n");
       // signal mm
-     
-      
-      
+
       output_str("3\n");
       // signal edge servers
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
