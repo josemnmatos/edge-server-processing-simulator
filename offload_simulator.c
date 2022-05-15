@@ -452,9 +452,15 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
 
       sem_post(semaphore);
 
+      message creation;
+      strcpy(creation.msg_text, "EDGE SERVER CREATED");
+      creation.msg_type = 1;
+
       // create SM->EDGE_SERVER_NUMBER edge servers
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
+            // inform maint manager that edge server will be created
+            msgsnd(message_queue_id, &creation, sizeof(message), 0);
             pipe(fd[i]);
             if ((SM->edge_pid[i] = fork()) == 0)
             {
@@ -481,7 +487,6 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       signal(SIGUSR1, task_manager_handler);
 
       // inform maint manager ALL edge servers were created
-      message creation;
       strcpy(creation.msg_text, "END");
       creation.msg_type = 2;
       msgsnd(message_queue_id, &creation, sizeof(message), 0);
@@ -784,12 +789,6 @@ void *task_manager_dispatcher(void *p)
 
 void edge_server_process(shared_memory *SM, int server_number)
 {
-      // inform maint manager that edge server was created
-      message creation;
-      strcpy(creation.msg_text, "EDGE SERVER CREATED");
-      creation.msg_type = 1;
-      msgsnd(message_queue_id, &creation, sizeof(message), 0);
-
       signal(SIGUSR1, edge_server_handler);
 
       // print stats for this edge server
