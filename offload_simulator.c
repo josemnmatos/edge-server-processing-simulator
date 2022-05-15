@@ -462,7 +462,7 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
             // inform maint manager that edge server will be created
             msgsnd(message_queue_id, &creation, sizeof(message), 0);
             pipe(fd[i]);
-            if ((SM->edge_pid[i] = fork()) == 0)
+            if (fork() == 0)
             {
                   // do what edge servers do
                   close(fd[i][1]);
@@ -789,6 +789,7 @@ void *task_manager_dispatcher(void *p)
 
 void edge_server_process(shared_memory *SM, int server_number)
 {
+
       signal(SIGUSR1, edge_server_handler);
 
       // print stats for this edge server
@@ -804,6 +805,7 @@ void edge_server_process(shared_memory *SM, int server_number)
 
       // creates threads for each cpu
       sem_wait(semaphore);
+      SM->edge_pid[server_number] = getpid();
       // check which vcpu has the lowest processing capacity
 
       // initiate cond and mutex for each vcpu of current edge server
@@ -904,8 +906,11 @@ void *vCPU_task(void *p)
             while (SM->times_edgeserver[info.server_number][info.vcpu_number] == 0)
             {
                   SM->EDGE_SERVERS[info.server_number].stopped_vcpus++;
-                  pthread_cond_signal(&message_queue_cond[info.server_number]);
+                  pthread_cond_broadcast(&message_queue_cond[info.server_number]);
+                  printf("broadcast1 %d\n", info.server_number);
                   pthread_cond_wait(&vcpuCond[info.server_number][info.vcpu_number], &vcpuMutex[info.server_number][info.vcpu_number]);
+                  //
+
                   SM->EDGE_SERVERS[info.server_number].stopped_vcpus--;
             }
             // check if is shutting down
@@ -926,8 +931,10 @@ void *vCPU_task(void *p)
             while (SM->EDGE_SERVERS[info.server_number].stopped == 1)
             {
                   SM->EDGE_SERVERS[info.server_number].stopped_vcpus++;
-                  pthread_cond_signal(&message_queue_cond[info.server_number]);
+                  pthread_cond_broadcast(&message_queue_cond[info.server_number]);
+                  printf("broadcast2 %d\n", info.server_number);
                   pthread_cond_wait(&vcpuCond[info.server_number][info.vcpu_number], &vcpuMutex[info.server_number][info.vcpu_number]);
+
                   SM->EDGE_SERVERS[info.server_number].stopped_vcpus--;
             }
 
@@ -954,10 +961,10 @@ void *messageQueueReader(void *p)
 {
       int server_number = *((int *)p);
       output_str("MAINTENANCE THREAD IN SERVER BEGAN\n");
-      int SEND_MSG_TYPE = server_number + SM->EDGE_SERVER_NUMBER;
-      printf("mqt snd: %d\n",SEND_MSG_TYPE);
-      int RECEIVE_MSG_TYPE = server_number;
-      printf("mqt rcv: %d\n",RECEIVE_MSG_TYPE);
+      int SEND_MSG_TYPE = server_number+1 + SM->EDGE_SERVER_NUMBER;
+      printf("mqt snd: %d\n", SEND_MSG_TYPE);
+      int RECEIVE_MSG_TYPE = server_number+1;
+      printf("mqt rcv: %d\n", RECEIVE_MSG_TYPE);
 
       message ready, receive;
       strcpy(ready.msg_text, "READY");
@@ -966,19 +973,25 @@ void *messageQueueReader(void *p)
       {
             // block until it receives maintenance message
             msgrcv(message_queue_id, &receive, sizeof(message), RECEIVE_MSG_TYPE, 0);
-            printf("%s\n", receive.msg_text);
+            printf("------%s - %d----%d\n", receive.msg_text, receive.msg_type, RECEIVE_MSG_TYPE);
             if (strcmp(receive.msg_text, "MAINTENANCE") == 0)
             {
-
+                  printf("enmterredad maintencna\n");
                   pthread_mutex_lock(&message_queue_mutex[server_number]);
                   // wait for tasks to end and send ready message
                   SM->EDGE_SERVERS[server_number].stopped = 1;
 
-                  while (SM->EDGE_SERVERS->stopped_vcpus < 2)
+                  /*while (SM->EDGE_SERVERS->stopped_vcpus < 0) // fica preso aqui
                   {
                         output_str("maintenance: waiting for vcpus to stop\n");
-                        pthread_cond_wait(&message_queue_cond[server_number], &message_queue_mutex[server_number]);
-                  }
+                        printf("server number %d\n", server_number);
+                        //signal vcpus so they signal back to re check condition
+                        pthread_cond_signal(&vcpuCond[server_number][0]);
+                        pthread_cond_signal(&vcpuCond[server_number][1]);
+                        pthread_cond_wait(&message_queue_cond[server_number], &message_queue_mutex[server_number]); // nao ta a ser assinalada~
+                        output_str("cond signaled\n");
+                  }*/
+
                   // server is ready for maintenance
                   msgsnd(message_queue_id, &ready, sizeof(message), 0);
                   // wait for continue
@@ -1052,8 +1065,7 @@ void maintenance_manager()
 
       // loop to indicate threads to enter maintenance
       while (1)
-      { // em vez do while de baixo talvez por aqui uma cond que cada thread manda signal quando acaba para ver se o numero de manutencoes atual baixou
-            // falta a parte da manutencao no edge server em si
+      {
             pthread_mutex_lock(&max_maint_mutex);
             while (maintenance_now >= EDGE_SERVER_NUMBER - 1)
             {
@@ -1067,7 +1079,7 @@ void maintenance_manager()
             // pick server for maintenance
 
             chosen_server = maintenance_counter % EDGE_SERVER_NUMBER;
-            printf("%d\n", chosen_server);
+            
             pthread_mutex_unlock(&maint_mutex);
             // signal cond for maintenance thread of chosen server and change flag
             maintWork[chosen_server] = 1;
@@ -1103,10 +1115,11 @@ void *maintenance_thread_func(void *p)
       // signal(SIGUSR1, SIG_IGN);
       maint_thread_info info = *((maint_thread_info *)p);
       // set message characteristics
-      int RECEIVE_MSG_TYPE = info.server_number + info.total_server_number;
-      printf("mm rcv: %d\n",RECEIVE_MSG_TYPE);
-      int SEND_MSG_TYPE = info.server_number;
-      printf("mm snd: %d\n",SEND_MSG_TYPE);
+      int RECEIVE_MSG_TYPE = info.server_number +1+ info.total_server_number;
+      printf("mm rcv: %d\n", RECEIVE_MSG_TYPE);
+
+      int SEND_MSG_TYPE = info.server_number+1;
+      printf("mm snd: %d\n", SEND_MSG_TYPE);
 
       message enter_maintenance, server_continue, receive;
       strcpy(enter_maintenance.msg_text, "MAINTENANCE");
@@ -1184,22 +1197,28 @@ void *maintenance_thread_func(void *p)
 
 void edge_server_handler(int signum)
 {
-      // signal all vcpus so they check the shutdown flag
-      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      pid_t this = getpid();
+
+      int i;
+      for (i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
-            SM->EDGE_SERVERS[i].stopped = 0;
-            SM->times_edgeserver[i][0] = 1;
-            SM->times_edgeserver[i][1] = 1;
-            pthread_cond_broadcast(&vcpuCond[i][0]);
-            pthread_cond_broadcast(&vcpuCond[i][1]);
+
+            if (this == SM->edge_pid[i])
+            {
+                  break;
+            }
       }
 
+      SM->EDGE_SERVERS[i].stopped = 0;
+      SM->times_edgeserver[i][0] = 1;
+      SM->times_edgeserver[i][1] = 1;
+      pthread_cond_broadcast(&vcpuCond[i][0]);
+      pthread_cond_broadcast(&vcpuCond[i][1]);
+
       output_str("EDGE SERVER LEAVING\n");
-      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
-      {
-            SM->taskToProcess[i] = 1;
-            pthread_cond_broadcast(&SM->edgeServerCond[i]);
-      }
+
+      SM->taskToProcess[i] = 1;
+      pthread_cond_broadcast(&SM->edgeServerCond[i]);
 
       // exit(0);
 }
@@ -1244,6 +1263,7 @@ void task_manager_handler(int signum)
       close(taskpipe);
       output_str("closed_taskpipe\n");
       pthread_cancel(SM->taskmanager[0]);
+      // signal all vcpus so they check the shutdown flag
 }
 
 void maint_manager_handler(int signum)
@@ -1311,6 +1331,7 @@ void end_sim()
 
       output_str("3\n");
       // signal edge servers
+
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             kill(SM->edge_pid[i], SIGUSR1);
