@@ -955,7 +955,9 @@ void *messageQueueReader(void *p)
       int server_number = *((int *)p);
       output_str("MAINTENANCE THREAD IN SERVER BEGAN\n");
       int SEND_MSG_TYPE = server_number + SM->EDGE_SERVER_NUMBER;
+      printf("mqt snd: %d\n",SEND_MSG_TYPE);
       int RECEIVE_MSG_TYPE = server_number;
+      printf("mqt rcv: %d\n",RECEIVE_MSG_TYPE);
 
       message ready, receive;
       strcpy(ready.msg_text, "READY");
@@ -1102,7 +1104,9 @@ void *maintenance_thread_func(void *p)
       maint_thread_info info = *((maint_thread_info *)p);
       // set message characteristics
       int RECEIVE_MSG_TYPE = info.server_number + info.total_server_number;
+      printf("mm rcv: %d\n",RECEIVE_MSG_TYPE);
       int SEND_MSG_TYPE = info.server_number;
+      printf("mm snd: %d\n",SEND_MSG_TYPE);
 
       message enter_maintenance, server_continue, receive;
       strcpy(enter_maintenance.msg_text, "MAINTENANCE");
