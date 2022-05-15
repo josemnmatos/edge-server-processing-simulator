@@ -23,7 +23,6 @@ José Miguel Norte de Matos 2020217977
 
 #define NUM_PROCESS_INI 3
 
-
 typedef struct
 {
         int total_server_number;
@@ -111,7 +110,7 @@ typedef struct
 
         // conditions
 
-        int *taskToProcess;
+        int **taskToProcess;
         pthread_cond_t *edgeServerCond;
         pthread_mutex_t *edgeServerMutex;
 
@@ -121,6 +120,13 @@ typedef struct
         pthread_mutex_t dispatcherMutex;
         pthread_mutex_t monitorMutex;
         pthread_mutex_t schedulerMutex;
+
+        pthread_mutex_t *stoppedMutex;
+
+        pthread_cond_t *continueDispatchCond;
+        pthread_mutex_t *continueDispatchMutex;
+
+        int continue_dispatch;
 
         int monitorWork;
         int dispatcherWork;
