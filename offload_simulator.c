@@ -30,6 +30,8 @@ void update_queue(request *queue, request new_element);
 void remove_from_queue(request *queue, int index);
 void *maintenance_thread_func(void *p);
 void *messageQueueReader(void *p);
+void *lowest_processing_vcpu(void *p);
+void *highest_processing_vcpu(void *p);
 
 int shmid;
 shared_memory *SM;
@@ -80,6 +82,7 @@ pthread_cond_t *maint_cond;
 pthread_mutex_t *maint_cond_mutex;
 int maintenance_counter = 0;
 int maintenance_now = 0;
+
 //--------------------
 // compile with : make all
 int main(int argc, char *argv[])
@@ -107,10 +110,9 @@ int main(int argc, char *argv[])
       // system manager
       system_manager(argv[1]);
 
-      printf("hello\n");
       // close the rest of req
+
       free(requestList);
-      free(reqListFinal);
 
       free(SM->simulation_stats.executed_pserver);
       free(SM->simulation_stats.maintenance_pserver);
@@ -121,8 +123,8 @@ int main(int argc, char *argv[])
       pthread_mutex_destroy(&taskQueueMutex);
 
       free(SM->min_waiting);
+
       free(SM->EDGE_SERVERS);
-      free(SM->edge_pid);
 
       free(message_queue_cond);
       free(message_queue_mutex);
@@ -136,26 +138,30 @@ int main(int argc, char *argv[])
             pthread_cond_destroy(&SM->edgeServerCond[i]);
             pthread_mutex_destroy(&SM->edgeServerMutex[i]);
       }
+
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             free(vcpuCond[i]);
             free(vcpuMutex[i]);
             free(SM->times_edgeserver[i]);
       }
+
       free(SM->times_edgeserver);
 
       free(vcpuCond);
+
       free(vcpuMutex);
+
       free(SM->edgeServerCond);
+
       free(SM->edgeServerMutex);
-      free(SM->taskToProcess);
 
       unlink(PIPE_NAME);
 
+      shmdt(SM);
       if (shmid >= 0)
             shmctl(shmid, IPC_RMID, NULL);
 
-      output_str("SIMULATOR CLOSED\n");
       if (outputSemaphore >= 0)
             sem_close(outputSemaphore);
       fclose(log_ptr);
@@ -176,9 +182,8 @@ void system_manager(const char *config_file)
       //********* capture sigtstp for statistics ********
 
       // create shared memory
-      shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0766 | IPC_EXCL);
+      shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0777);
       SM = (shared_memory *)shmat(shmid, NULL, 0);
-      
 
       SM->sm_pid = getpid();
 
@@ -196,16 +201,15 @@ void system_manager(const char *config_file)
       //********* validate config file information ********
 
       output_str("CONFIGURATION SET\n");
-      
+
       pthread_mutexattr_t attrmutex;
       pthread_condattr_t attrcondv;
-      /* Initialize attribute of mutex. */
-      pthread_mutexattr_init(&attrmutex);
-      if(pthread_mutexattr_setpshared(&attrmutex, PTHREAD_PROCESS_SHARED) != 0) printf("erro mutex attr\n");
 
-      /* Initialize attribute of condition variable. */
-      pthread_condattr_init(&attrcondv);
-      if(pthread_condattr_setpshared(&attrcondv, PTHREAD_PROCESS_SHARED) != 0) printf("erro cond attr\n");
+      if (pthread_mutexattr_setpshared(&attrmutex, PTHREAD_PROCESS_SHARED) != 0)
+            printf("erro mutex attr\n");
+
+      if (pthread_condattr_setpshared(&attrcondv, PTHREAD_PROCESS_SHARED) != 0)
+            printf("erro cond attr\n");
 
       SM->edgeServerCond = (pthread_cond_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pthread_cond_t));
       SM->edgeServerMutex = (pthread_mutex_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pthread_mutex_t));
@@ -227,7 +231,6 @@ void system_manager(const char *config_file)
             pthread_mutex_init(&message_queue_mutex[i], NULL);
       }
 
-      
       pthread_cond_init(&SM->monitorCond, &attrcondv);
       pthread_mutex_init(&SM->monitorMutex, &attrmutex);
 
@@ -237,13 +240,8 @@ void system_manager(const char *config_file)
       pthread_cond_init(&SM->dispatcherCond, &attrcondv);
       pthread_mutex_init(&SM->dispatcherMutex, &attrmutex);
 
-      SM->continueDispatchCond = (pthread_cond_t *)malloc(sizeof(pthread_cond_t));
-      SM->continueDispatchMutex = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
-
-      pthread_cond_init(SM->continueDispatchCond, &attrcondv);
-      pthread_mutex_init(SM->continueDispatchMutex, &attrmutex);
-
-      //pthread_mutex_init(&SM->stoppedMutex, &attrmutex);
+      pthread_cond_init(&SM->continueDispatchCond, &attrcondv);
+      pthread_mutex_init(&SM->continueDispatchMutex, &attrmutex);
 
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
@@ -275,8 +273,9 @@ void system_manager(const char *config_file)
 
       // create the rest of the processes
 
+      int p;
       // monitor process
-      if ((SM->c_pid[0] = fork()) == 0)
+      if ((p = fork()) == 0)
       {
 
             output_str("PROCESS MONITOR CREATED\n");
@@ -284,7 +283,7 @@ void system_manager(const char *config_file)
             monitor(SM);
             exit(0);
       }
-      if (SM->c_pid[0] == -1)
+      if (p == -1)
       {
 
             output_str("ERROR CREATING PROCESS MONITOR\n");
@@ -292,7 +291,7 @@ void system_manager(const char *config_file)
       }
 
       // task_manager process
-      if ((SM->c_pid[1] = fork()) == 0)
+      if ((p = fork()) == 0)
       {
 
             output_str("PROCESS TASK_MANAGER CREATED\n");
@@ -300,7 +299,7 @@ void system_manager(const char *config_file)
             task_manager(SM);
             exit(0);
       }
-      if (SM->c_pid[1] == -1)
+      if (p == -1)
       {
             output_str("ERROR CREATING PROCESS TASK_MANAGER\n");
 
@@ -308,14 +307,14 @@ void system_manager(const char *config_file)
       }
 
       // maintenance manager process
-      if ((SM->c_pid[2] = fork()) == 0)
+      if ((p = fork()) == 0)
       {
             output_str("PROCESS MAINTENANCE_MANAGER CREATED\n");
             // not using
             maintenance_manager(SM->EDGE_SERVER_NUMBER);
             exit(0);
       }
-      if (SM->c_pid[2] == -1)
+      if (p == -1)
       {
             output_str("ERROR CREATING MAINTENANCE_MANAGER\n");
 
@@ -325,16 +324,14 @@ void system_manager(const char *config_file)
       // handle control c and ctrl z
       signal(SIGINT, sigint_handler);
       signal(SIGTSTP, sigtstp_handler);
-
+      int status;
       // wait for all system manager child processes to end
-      for (int j = 0; j < NUM_PROCESS_INI; j++)
-      {
-            wait(NULL);
-      }
+      // waitpid(SM->c_pid[0], 0, 0);
+      // waitpid(SM->c_pid[2], 0, 0);
+      waitpid(SM->c_pid[1], 0, 0);
+
       pthread_mutexattr_destroy(&attrmutex);
       pthread_condattr_destroy(&attrcondv);
-
-      output_str("AUGHHHH\n");
 }
 
 //###############################################
@@ -349,6 +346,7 @@ void system_manager(const char *config_file)
 
 void monitor(shared_memory *SM)
 {
+      SM->c_pid[0] = getpid();
       signal(SIGUSR1, monitor_handler);
       SM->performance_flag = 0;
 
@@ -371,26 +369,32 @@ void monitor(shared_memory *SM)
                   break;
             }
             // do monitor things
-            queue_rate = SM->num_queue / SM->QUEUE_POS;
+            queue_rate = (float)SM->num_queue / (float)SM->QUEUE_POS;
+            printf("qr: %f\n", queue_rate);
             // get minimum waiting time on any vcpu
-            int minimum_waiting_time = SM->min_waiting[0];
-            SM->server = 1;
-
+            int minimum_waiting_time = SM->EDGE_SERVERS[0].vcpu[0].assigned_task_time;
             // function to see the minimum in min_waiting;
             for (int i = 1; i < SM->EDGE_SERVER_NUMBER; i++)
             {
-                  if (SM->min_waiting[i] < minimum_waiting_time)
+                  if (SM->EDGE_SERVERS[i].vcpu[0].assigned_task_time < minimum_waiting_time)
                   {
-                        minimum_waiting_time = SM->min_waiting[i];
-                        SM->server = i + 1;
+                        minimum_waiting_time = SM->EDGE_SERVERS[i].vcpu[0].assigned_task_time;
+                  }
+
+                  if (SM->EDGE_SERVERS[i].vcpu[1].assigned_task_time < minimum_waiting_time)
+                  {
+                        minimum_waiting_time = SM->EDGE_SERVERS[i].vcpu[1].assigned_task_time;
                   }
             }
 
-            if ((queue_rate > 0.8) && SM->performance_flag == 0 && (minimum_waiting_time > SM->MAX_WAIT))
+            printf("minimum waiting: %d\n", minimum_waiting_time);
+
+            if (((queue_rate > 0.8) && SM->performance_flag == 0) || (minimum_waiting_time > SM->MAX_WAIT))
             {
                   output_str("EDGE SERVERS IN HIGH PERFORMANCE\n");
                   sem_wait(semaphore);
                   SM->performance_flag = 1;
+                  pthread_cond_signal(&SM->dispatcherCond);
                   sem_post(semaphore);
             }
             if (queue_rate < 0.2 && SM->performance_flag == 1)
@@ -398,6 +402,7 @@ void monitor(shared_memory *SM)
                   output_str("EDGE SERVERS IN NORMAL PERFORMANCE\n");
                   sem_wait(semaphore);
                   SM->performance_flag = 0;
+                  pthread_cond_signal(&SM->dispatcherCond);
                   sem_post(semaphore);
             }
             SM->monitorWork = 0;
@@ -415,6 +420,7 @@ void monitor(shared_memory *SM)
 
 void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e não fecha se ainda estiver a ler fica bloqueado
 {
+      SM->c_pid[1] = getpid();
       // handler to shutdown task manager process
       signal(SIGUSR1, SIG_IGN);
 
@@ -433,6 +439,7 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       SM->edge_pid = (pid_t *)calloc(SM->EDGE_SERVER_NUMBER, sizeof(pid_t));
 
       SM->taskToProcess = (int **)calloc(SM->EDGE_SERVER_NUMBER, sizeof(int *));
+
       for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
       {
             SM->taskToProcess[i] = (int *)calloc(2, sizeof(int));
@@ -507,8 +514,8 @@ void task_manager(shared_memory *SM) // nao ta a funcionar bem so lê uma vez e 
       }
 
       // destroy mutex
-      pthread_cond_destroy(SM->continueDispatchCond);
-      pthread_mutex_destroy(SM->continueDispatchMutex);
+      // pthread_cond_destroy(SM->continueDispatchCond);
+      // pthread_mutex_destroy(SM->continueDispatchMutex);
       free(SM->times_edgeserver);
       free(vcpu_time);
 
@@ -575,16 +582,15 @@ void *task_manager_scheduler(void *p)
             else // handle the received task string
             {
 
-                  // isto aqui ta mal tambem MALL MAL MAL MAL MAL NAO TA A LER BEM O INPUT - ja ta bem
-
                   char *token = strtok(task_read_string, ":");
                   tsk.thousInstructPerRequest = atoi(token);
                   token = strtok(NULL, ":");
                   tsk.maxExecTimeSecs = atoi(token);
-                  printf("%d\n", tsk.id);
                   tsk.id++;
 
                   req.tsk = tsk;
+                  req.timeOfEntry = time(NULL);
+                  //printf("timeentry %d\n", req.timeOfEntry);
 
                   pthread_mutex_lock(&taskQueueMutex);
 
@@ -594,7 +600,7 @@ void *task_manager_scheduler(void *p)
                   }
                   else
                   {
-                        req.timeOfEntry = time(NULL);
+
                         // add request at right position of queue and see if the time has already passed
                         update_queue(requestList, req);
 
@@ -602,13 +608,15 @@ void *task_manager_scheduler(void *p)
 
                         SM->simulation_stats.requested_tasks++;
                   }
+                  SM->monitorWork = 1;
+                  pthread_cond_broadcast(&SM->monitorCond);
+                  SM->dispatcherWork = 1;
+                  pthread_cond_signal(&SM->dispatcherCond);
 
                   pthread_mutex_unlock(&taskQueueMutex);
                   // printf("%d\n", requestList[0].tsk.thousInstructPerRequest);
 
                   // signal dispatcher
-                  SM->dispatcherWork = 1;
-                  pthread_cond_signal(&SM->dispatcherCond);
             }
       }
       output_str("TASK_MANAGER_SCHEDULER LEAVING\n");
@@ -627,7 +635,8 @@ void remove_from_queue(request queue[], int index)
 void update_queue(request queue[], request new_element)
 {
       // insert at end
-      queue[SM->num_queue++] = new_element;
+      SM->num_queue++;
+      queue[SM->num_queue] = new_element;
 
       for (int i = 0; i < SM->num_queue; i++)
       {
@@ -662,6 +671,7 @@ void update_queue(request queue[], request new_element)
 // precisamos de um cond p saber se ha algum vcpu livre
 
 // esta funçao ta mal por enquanto não sei com qual tem de comunicar para ver se ta algum livre
+// esta funçao ta mal por enquanto não sei com qual tem de comunicar para ver se ta algum livre
 void *task_manager_dispatcher(void *p)
 {
       output_str("TASK_MANAGER_DISPATCHER WORKING\n");
@@ -677,6 +687,7 @@ void *task_manager_dispatcher(void *p)
             while (SM->dispatcherWork == 0)
             { // condition to check if any is free
                   pthread_cond_wait(&SM->dispatcherCond, &SM->dispatcherMutex);
+                  output_str("LEFT DISPATCHER COND\n");
             }
             // check if system is shutting down
             if (SM->shutdown == 1)
@@ -687,6 +698,7 @@ void *task_manager_dispatcher(void *p)
 
             // do dispatcher things
             most_priority = requestList[0];
+            printf("id :%d\n", most_priority.tsk.id);
 
             int i;
 
@@ -708,7 +720,7 @@ void *task_manager_dispatcher(void *p)
                   if (SM->taskToProcess[i][0] == 0)
                   {
 
-                        vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity * (1000000);
+                        vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vcpu[0].capacity * (1000000);
 
                         task_instructions = most_priority.tsk.thousInstructPerRequest * (1000);
 
@@ -717,8 +729,8 @@ void *task_manager_dispatcher(void *p)
                         // string with processing time and vcpu number to execute
                         sprintf(processing_time_string, "%d:1", processing_time);
 
-                        // printf("processing %d\n", processing_time);
-                        // printf("time: %d - %d + %d\n", most_priority.timeOfEntry, time(NULL), most_priority.tsk.maxExecTimeSecs);
+                        printf("processing %d\n", processing_time);
+                        printf("time: %d - %d + %d\n", most_priority.timeOfEntry, time(NULL), most_priority.tsk.maxExecTimeSecs);
 
                         // dispatch task to edge server
 
@@ -729,17 +741,15 @@ void *task_manager_dispatcher(void *p)
                               write(fd[i][1], &processing_time_string, PIPE_BUF);
                               pthread_mutex_unlock(&SM->dispatcherMutex);
 
-                              /*pthread_mutex_lock(SM->continueDispatchMutex);
-                              while (SM->continue_dispatch == 0)
+                              pthread_mutex_lock(&SM->continueDispatchMutex);
+                              while (&SM->continue_dispatch == 0)
                               {
-
                                     output_str("A\n");
-                                    pthread_cond_wait(SM->continueDispatchCond, SM->continueDispatchMutex);
+                                    pthread_cond_wait(&SM->continueDispatchCond, &SM->continueDispatchMutex);
 
                                     output_str("B\n");
                               }
-                              pthread_mutex_unlock(SM->continueDispatchMutex);*/
-
+                              pthread_mutex_unlock(&SM->continueDispatchMutex);
                               pthread_mutex_lock(&SM->dispatcherMutex);
                               SM->taskToProcess[i][0] = 1;
                               // pthread_cond_broadcast(&SM->edgeServerCond[i]);
@@ -747,6 +757,7 @@ void *task_manager_dispatcher(void *p)
                               sprintf(print, "TASK DISPATCHED TO SERVER %d\n", i);
                               output_str(print);
                               pthread_mutex_unlock(&SM->dispatcherMutex);
+
                               break;
                         }
                   }
@@ -755,7 +766,7 @@ void *task_manager_dispatcher(void *p)
                   {
                         if (SM->taskToProcess[i][1] == 0)
                         {
-                              int vcpu2_instruction_capacity = SM->EDGE_SERVERS[i].vCPU_1_capacity * (1000000);
+                              int vcpu2_instruction_capacity = SM->EDGE_SERVERS[i].vcpu[0].capacity * (1000000);
                               int processing_time = (int)(task_instructions / vcpu2_instruction_capacity);
                               char processing_time_string[PIPE_BUF];
                               // string with processing time and vcpu number to execute
@@ -769,15 +780,15 @@ void *task_manager_dispatcher(void *p)
 
                                     pthread_mutex_unlock(&SM->dispatcherMutex);
 
-                                    /*pthread_mutex_lock(SM->continueDispatchMutex);
-                                    while (SM->continue_dispatch == 0)
+                                    pthread_mutex_lock(&SM->continueDispatchMutex);
+                                    while (&SM->continue_dispatch == 0)
                                     {
                                           output_str("A\n");
-                                          pthread_cond_wait(SM->continueDispatchCond, SM->continueDispatchMutex);
+                                          pthread_cond_wait(&SM->continueDispatchCond, &SM->continueDispatchMutex);
 
                                           output_str("B\n");
                                     }
-                                    pthread_mutex_unlock(SM->continueDispatchMutex);*/
+                                    pthread_mutex_unlock(&SM->continueDispatchMutex);
 
                                     pthread_mutex_lock(&SM->dispatcherMutex);
 
@@ -793,22 +804,18 @@ void *task_manager_dispatcher(void *p)
             // if task not dispatched, delete
             if (i == SM->EDGE_SERVER_NUMBER)
             {
-                  int j;
-                  // delete task on position 0
-                  for (j = 0; j < SM->num_queue; j++)
-                  {
-                        if (most_priority.tsk.id == requestList[j].tsk.id)
-                        {
-                              break;
-                        }
-                  }
-
-                  for (int p = j; p < SM->num_queue - 1; p++)
-                  {
-                        requestList[p] = requestList[p + 1];
-                  }
-                  SM->num_queue--;
                   output_str("TASK ELIMINATED: MAX EXEC TIME EXCEEDED\n");
+            }
+            int j;
+            // delete task on position 0
+            for (j = 0; j < SM->num_queue; j++)
+            {
+                  if (most_priority.tsk.id == requestList[j].tsk.id)
+                  {
+                        remove_from_queue(requestList, j);
+                        SM->num_queue--;
+                        break;
+                  }
             }
 
             SM->dispatcherWork = 0;
@@ -823,9 +830,339 @@ void *task_manager_dispatcher(void *p)
       pthread_exit(NULL);
 }
 
+/*
+void *task_manager_dispatcher(void *p)
+{
+      output_str("TASK_MANAGER_DISPATCHER WORKING\n");
+      int vcpu1_instruction_capacity;
+      int task_instructions;
+      int processing_time;
+      request most_priority;
+      int freeVCPU;
+
+      while (1)
+      {
+            freeVCPU = 0;
+            // this thread is only activated if a vcpu is free
+            pthread_mutex_lock(&SM->dispatcherMutex);
+            while (SM->num_queue <= 0) //|| freeVCPU == 0)
+            { // condition to check if any is free
+                  pthread_cond_wait(&SM->dispatcherCond, &SM->dispatcherMutex);
+                  printf("SAIU DA COND DISPATCHER\n");
+                  if (SM->shutdown == 1)
+                  {
+                        break;
+                  }
+                  for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+                  {
+                        if (SM->EDGE_SERVERS[i].vcpu[0].available == 1 || SM->EDGE_SERVERS[i].vcpu[1].available == 1)
+                        {
+                              output_str("FOUND AVAILABLE VCPU\n");
+                              freeVCPU = 1;
+                              break;
+                        }
+                  }
+            }
+            output_str("started dispatch\n");
+            pthread_mutex_unlock(&SM->dispatcherMutex);
+            // check if system is shutting down
+            if (SM->shutdown == 1)
+            {
+                  break;
+            }
+
+            // do dispatcher things
+            pthread_mutex_lock(&taskQueueMutex);
+            most_priority = requestList[0];
+            pthread_mutex_unlock(&taskQueueMutex);
+
+            int i;
+
+            for (i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+            {
+
+                  // checks the task with most priority can be executed by a vcpu in time inferior to MaxEXECTIME
+                  // if edge server is on maintenance skip
+                  // check vcpu 1, if yes dispatch
+                  pthread_mutex_lock(&SM->dispatcherMutex);
+                  if (SM->EDGE_SERVERS[i].vcpu[0].assigned_task_time == 0)
+                  {
+
+                        vcpu1_instruction_capacity = SM->EDGE_SERVERS[i].vcpu[0].capacity * (1000000);
+
+                        task_instructions = most_priority.tsk.thousInstructPerRequest * (1000);
+
+                        processing_time = (int)(task_instructions / vcpu1_instruction_capacity);
+                        char processing_time_string[PIPE_BUF];
+                        // string with processing time and vcpu number to execute
+                        sprintf(processing_time_string, "%d:0", processing_time);
+
+                        if (processing_time <= ((time(NULL) - most_priority.timeOfEntry) + most_priority.tsk.maxExecTimeSecs))
+                        {
+                              SM->EDGE_SERVERS[i].vcpu[0].available = 0;
+                              // write to pipe for execution on vcpu 1
+
+                              write(fd[i][1], &processing_time_string, PIPE_BUF);
+                              pthread_mutex_unlock(&SM->dispatcherMutex);
+
+
+                              pthread_mutex_lock(&SM->dispatcherMutex);
+                              SM->taskToProcess[i][0] = 1;
+                              // pthread_cond_broadcast(&SM->edgeServerCond[i]);
+                              char print[60];
+                              sprintf(print, "TASK DISPATCHED TO SERVER %d\n", i);
+                              output_str(print);
+                              pthread_mutex_unlock(&SM->dispatcherMutex);
+                              break;
+                        }
+                        else{
+                              output_str("CANT EXECUTE TASK IN TIME\n");
+                        }
+                  }
+                  // check vcpu 2, if yes and cpu 2 is on, dispatch
+                  if (SM->performance_flag == 1)
+                  {
+                        if (SM->EDGE_SERVERS[i].vcpu[1].assigned_task_time == 0)
+                        {
+
+                              int vcpu2_instruction_capacity = SM->EDGE_SERVERS[i].vcpu[0].capacity * (1000000);
+                              int processing_time = (int)(task_instructions / vcpu2_instruction_capacity);
+                              char processing_time_string[PIPE_BUF];
+                              // string with processing time and vcpu number to execute
+                              sprintf(processing_time_string, "%d:1", processing_time);
+
+                              if (processing_time <= ((time(NULL) - most_priority.timeOfEntry) + most_priority.tsk.maxExecTimeSecs))
+                              {
+                                    SM->EDGE_SERVERS[i].vcpu[1].available = 0;
+                                    // write to pipe for execution on vcpu 2
+                                    write(fd[i][1], &processing_time_string, PIPE_BUF);
+
+                                    SM->taskToProcess[i][1] = 1;
+                                    // pthread_cond_broadcast(&SM->edgeServerCond[i]);
+                                    char print[60];
+                                    sprintf(print, "TASK DISPATCHED TO SERVER %d\n", i);
+                                    output_str(print);
+                                    pthread_mutex_unlock(&SM->dispatcherMutex);
+                                    break;
+                              }
+                              else{
+                              output_str("CANT EXECUTE TASK IN TIME\n");
+                              }
+                        }
+
+                  }
+            }
+            // if task not dispatched print
+            if (i == SM->EDGE_SERVER_NUMBER)
+            {
+                  output_str("TASK NOT DISPATCHED: MAX EXEC TIME EXCEEDED.\n");
+            }
+            // remove task
+            for (int j = 0; j < SM->num_queue; j++)
+            {
+                  pthread_mutex_lock(&taskQueueMutex);
+                  if (requestList[j].tsk.id == most_priority.tsk.id)
+                  {
+                        remove_from_queue(requestList, j);
+                        SM->num_queue--;
+                  }
+                  pthread_mutex_unlock(&taskQueueMutex);
+            }
+            SM->dispatcherWork = 0;
+            pthread_mutex_unlock(&SM->dispatcherMutex);
+      }
+
+      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+      {
+            close(fd[i][1]);
+      }
+
+      output_str("DISPATCHER LEFT\n");
+      pthread_exit(NULL);
+}
+*/
+
 //###############################################
 // EDGE SERVERS
 //###############################################
+
+/*
+void edge_server_process(shared_memory *SM, int server_number)
+{
+
+      signal(SIGUSR1, edge_server_handler);
+
+      // print stats for this edge server
+      // signal(SIGTSTP, edge_server_stats);
+      int *arg1 = malloc(sizeof(int));
+      int *arg2 = malloc(sizeof(int));
+      *arg1 = server_number;
+      *arg2 = server_number;
+
+      sem_wait(semaphore);
+      SM->edge_pid[server_number] = getpid();
+      // check which vcpu has the lowest processing capacity
+
+      // initiate cond and mutex for each vcpu of current edge server
+      for (int i = 0; i < 2; i++)
+      {
+            pthread_mutex_init(&SM->EDGE_SERVERS[server_number].vcpu[i].mutex, NULL);
+            pthread_cond_init(&SM->EDGE_SERVERS[server_number].vcpu[i].cond, NULL);
+      }
+
+      /// create vcpu[0] thread as the lower processing vcpu and 1 as the higher [decided in the config file reading]
+      pthread_create(&SM->EDGE_SERVERS[server_number].vcpu[0].thread, NULL, &lowest_processing_vcpu, arg1);
+      pthread_create(&SM->EDGE_SERVERS[server_number].vcpu[1].thread, NULL, &highest_processing_vcpu, arg2);
+
+
+
+
+
+
+      int *arg3 = malloc(sizeof(int));
+      *arg3 = server_number;
+      // create message queue reader thread
+      pthread_create(&server_thread_for_maintenance[server_number], NULL, &messageQueueReader, arg3);
+
+      sem_post(semaphore);
+
+      char to_execute[PIPE_BUF];
+      int time_to_run;
+      int vcpu_to_run;
+      close(fd[server_number][1]);
+
+      while (1) // nao é espera ativa pq esta aberto p escrita do outro lado mas onde se meter a leitura do message queue
+      {
+            pthread_mutex_lock(&SM->edgeServerMutex[server_number]);
+            printf("edge server %d waiting for read.\n", server_number);
+            int nread = read(fd[server_number][0], to_execute, PIPE_BUF);
+            printf("edge server %d waiting has read %s .\n", server_number, to_execute);
+
+
+            // signal dispatcher that edge server has received task
+
+            if (SM->shutdown == 1)
+            {
+                  break;
+            }
+
+            if (nread < 0)
+            {
+                  output_str("EDGE SERVER NOT READING ANYMORE\n");
+                  break;
+            }
+            if (nread > 0)
+            {
+                  SM->continue_dispatch = 1;
+                  // pthread_cond_broadcast(SM->continueDispatchCond);
+
+                  to_execute[nread] = '\0';
+                  to_execute[strcspn(to_execute, "\n")] = 0;
+                  char *token = strtok(to_execute, ":");
+                  time_to_run = atoi(token);
+                  token = strtok(NULL, ":");
+                  vcpu_to_run = atoi(token);
+
+                  printf("edge server %d read task with processing time %d on vcpu %d.\n", server_number, time_to_run, vcpu_to_run);
+
+                  // check which vcpu is going to be ran and assign the instruction to it
+                  SM->EDGE_SERVERS[server_number].vcpu[vcpu_to_run].assigned_task_time = time_to_run;
+
+                  //  alert vcpu
+                  pthread_cond_broadcast(&SM->EDGE_SERVERS[server_number].vcpu[vcpu_to_run].cond);
+            }
+            pthread_mutex_unlock(&SM->edgeServerMutex[server_number]);
+      }
+      close(fd[server_number][0]);
+
+      // clean
+      pthread_join(SM->EDGE_SERVERS[server_number].vcpu[0].thread, NULL);
+      pthread_join(SM->EDGE_SERVERS[server_number].vcpu[1].thread, NULL);
+      // cancel maintenance thread
+      pthread_cancel(server_thread_for_maintenance[server_number]);
+
+      pthread_cond_destroy(&message_queue_cond[server_number]);
+      pthread_mutex_destroy(&message_queue_mutex[server_number]);
+
+      output_str("edge server left\n");
+      exit(0);
+}
+
+void *lowest_processing_vcpu(void *p)
+{
+      int SERVER_NUMBER = *((int *)p);
+      char print[100];
+      while (1)
+      {
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].state = 0;
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].available = 1;
+            // signal availability to dispatcher
+            pthread_cond_broadcast(&SM->dispatcherCond);
+            // wait if server is stopped or if no task assigned
+            pthread_mutex_lock(&SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].mutex);
+            while (SM->EDGE_SERVERS[SERVER_NUMBER].stopped == 1 || SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].assigned_task_time <= 0)
+            {
+                  // wait wait wait
+                  pthread_cond_wait(&SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].cond, &SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].mutex);
+                  // printf("augh\n");
+            }
+            pthread_mutex_unlock(&SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].mutex);
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].state = 1;
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].available = 0;
+            // check if system is shutting down
+            if (SM->shutdown == 1)
+            {
+                  break;
+            }
+            // execute assigned task
+            int task = SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].assigned_task_time;
+            sleep(task);
+            sprintf(print, "SERVER %d(VCPU1): TASK EXECUTED IN %dS\n", SERVER_NUMBER, task);
+            output_str(print);
+            // clear assigned task
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[0].assigned_task_time = 0;
+      }
+      free(p);
+      output_str("VCPU LEFT\n");
+      pthread_exit(NULL);
+}
+
+void *highest_processing_vcpu(void *p)
+{
+      int SERVER_NUMBER = *((int *)p);
+      char print[100];
+      while (1)
+      {
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].state = 0;
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].available = 1;
+            // signal availability to dispatcher
+            pthread_cond_broadcast(&SM->dispatcherCond);
+            pthread_mutex_lock(&SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].mutex);
+            while (SM->performance_flag == 0 || SM->EDGE_SERVERS[SERVER_NUMBER].stopped == 1 || SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].assigned_task_time <= 0)
+            {
+                  // wait wait wait
+                  pthread_cond_wait(&SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].cond, &SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].mutex);
+            }
+            pthread_mutex_unlock(&SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].mutex);
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].state = 1;
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].available = 0;
+            if (SM->shutdown == 1)
+            {
+                  break;
+            }
+            // execute assigned task
+            int task = SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].assigned_task_time;
+            sleep(task);
+            sprintf(print, "SERVER %d(VCPU2): TASK EXECUTED IN %dS\n", SERVER_NUMBER, task);
+            output_str(print);
+            // clear assigned task
+            SM->EDGE_SERVERS[SERVER_NUMBER].vcpu[1].assigned_task_time = 0;
+      }
+      free(p);
+      output_str("VCPU LEFT\n");
+      pthread_exit(NULL);
+}
+*/
 
 void edge_server_process(shared_memory *SM, int server_number)
 {
@@ -834,6 +1171,10 @@ void edge_server_process(shared_memory *SM, int server_number)
 
       // print stats for this edge server
       // signal(SIGTSTP, edge_server_stats);
+      // int *arg1 = malloc(sizeof(int));
+      // int *arg2 = malloc(sizeof(int));
+      // arg1=server_number;
+      // arg2=server_number;
 
       vcpu_info *arg1 = malloc(sizeof(vcpu_info));
       vcpu_info *arg2 = malloc(sizeof(vcpu_info));
@@ -855,16 +1196,12 @@ void edge_server_process(shared_memory *SM, int server_number)
             pthread_cond_init(&vcpuCond[server_number][i], NULL);
       }
 
-      if (SM->EDGE_SERVERS[server_number].vCPU_1_capacity <= SM->EDGE_SERVERS[server_number].vCPU_2_capacity)
-      {
-            pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg1);
-            pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, arg2);
-      }
-      else
-      {
-            pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[0], NULL, &vCPU_task, arg2);
-            pthread_create(&SM->EDGE_SERVERS[server_number].vCPU[1], NULL, &vCPU_task, arg1);
-      }
+      pthread_create(&SM->EDGE_SERVERS[server_number].vcpu[0].thread, NULL, &vCPU_task, arg1);
+      pthread_create(&SM->EDGE_SERVERS[server_number].vcpu[1].thread, NULL, &vCPU_task, arg2);
+
+      // create vcpu[0] thread as the lower processing vcpu and 1 as the higher [decided in the config file reading]
+      // pthread_create(&SM->EDGE_SERVERS[server_number].vcpu[0].thread, NULL, &lowest_processing_vcpu, arg1);
+      // pthread_create(&SM->EDGE_SERVERS[server_number].vcpu[1].thread, NULL, &highest_processing_vcpu, arg2);
 
       int *arg3 = malloc(sizeof(int));
       *arg3 = server_number;
@@ -883,7 +1220,8 @@ void edge_server_process(shared_memory *SM, int server_number)
             pthread_mutex_lock(&SM->edgeServerMutex[server_number]);
             printf("edge server %d waiting for read.\n", server_number);
             int nread = read(fd[server_number][0], to_execute, PIPE_BUF);
-            printf("edge server %d waiting has read %s .\n",server_number,to_execute);
+            printf("edge server %d waiting has read %s .\n", server_number, to_execute);
+            // sem_post(semMai);
 
             // signal dispatcher that edge server has received task
 
@@ -900,7 +1238,7 @@ void edge_server_process(shared_memory *SM, int server_number)
             if (nread > 0)
             {
                   SM->continue_dispatch = 1;
-                  pthread_cond_broadcast(SM->continueDispatchCond);
+                  pthread_cond_broadcast(&SM->continueDispatchCond);
 
                   to_execute[nread] = '\0';
                   to_execute[strcspn(to_execute, "\n")] = 0;
@@ -922,10 +1260,13 @@ void edge_server_process(shared_memory *SM, int server_number)
       }
       close(fd[server_number][0]);
 
+
+      printf("augh1\n");
       // clean
-      pthread_join(SM->EDGE_SERVERS[server_number].vCPU[0], NULL);
-      pthread_join(SM->EDGE_SERVERS[server_number].vCPU[1], NULL);
+      pthread_join(SM->EDGE_SERVERS[server_number].vcpu[0].thread, NULL);
+      pthread_join(SM->EDGE_SERVERS[server_number].vcpu[1].thread, NULL);
       // cancel maintenance thread
+      printf("augh2\n");
       pthread_cancel(server_thread_for_maintenance[server_number]);
 
       pthread_cond_destroy(&message_queue_cond[server_number]);
@@ -953,8 +1294,13 @@ void *vCPU_task(void *p)
             {
                   SM->EDGE_SERVERS[info.server_number].stopped_vcpus++;
                   pthread_cond_broadcast(&message_queue_cond[info.server_number]);
-                  printf("broadcast1 %d\n", info.server_number);
+
                   pthread_cond_wait(&vcpuCond[info.server_number][info.vcpu_number], &vcpuMutex[info.server_number][info.vcpu_number]);
+                  if (SM->shutdown == 1)
+            {
+                  pthread_mutex_unlock(&vcpuMutex[info.server_number][info.vcpu_number]);
+                  break;
+            }
                   //
 
                   SM->EDGE_SERVERS[info.server_number].stopped_vcpus--;
@@ -972,7 +1318,7 @@ void *vCPU_task(void *p)
             printf("time to sleep %d\n", time_to_sleep);
             sleep(time_to_sleep);
             char print[80];
-            sprintf(print,"SERVER %d - VCPU %d : FINISHED TASK IN %d SECONDS\n",info.server_number+1,info.vcpu_number+1,time_to_sleep);
+            sprintf(print, "SERVER %d - VCPU %d : FINISHED TASK IN %d SECONDS\n", info.server_number + 1, info.vcpu_number + 1, time_to_sleep);
             output_str(print);
             SM->simulation_stats.executed_pserver[info.server_number]++;
             // cond signal to check if its in maintenance
@@ -980,8 +1326,13 @@ void *vCPU_task(void *p)
             {
                   SM->EDGE_SERVERS[info.server_number].stopped_vcpus++;
                   pthread_cond_broadcast(&message_queue_cond[info.server_number]);
-                  printf("broadcast2 %d\n", info.server_number);
+
                   pthread_cond_wait(&vcpuCond[info.server_number][info.vcpu_number], &vcpuMutex[info.server_number][info.vcpu_number]);
+                  if (SM->shutdown == 1)
+            {
+                  pthread_mutex_unlock(&vcpuMutex[info.server_number][info.vcpu_number]);
+                  break;
+            }
 
                   SM->EDGE_SERVERS[info.server_number].stopped_vcpus--;
             }
@@ -993,10 +1344,10 @@ void *vCPU_task(void *p)
                   break;
             }
 
-            sprintf(print,"SERVER %d - VCPU %d : READY FOR NEXT TASK\n",info.server_number+1,info.vcpu_number+1);
+            sprintf(print, "SERVER %d - VCPU %d : READY FOR NEXT TASK\n", info.server_number + 1, info.vcpu_number + 1);
             output_str(print);
             // reset the time so it waits for next vcpu task assignment
-            SM->taskToProcess[info.server_number][info.vcpu_number]=0;
+            SM->taskToProcess[info.server_number][info.vcpu_number] = 0;
             SM->times_edgeserver[info.server_number][info.vcpu_number] = 0;
             pthread_mutex_unlock(&vcpuMutex[info.server_number][info.vcpu_number]);
       }
@@ -1004,6 +1355,7 @@ void *vCPU_task(void *p)
       free(p);
       pthread_exit(NULL);
 }
+
 //###############################################
 // read message queue thread
 //###############################################
@@ -1023,10 +1375,9 @@ void *messageQueueReader(void *p)
       {
             // block until it receives maintenance message
             msgrcv(message_queue_id, &receive, sizeof(message), RECEIVE_MSG_TYPE, 0);
-            printf("------%s - %ld----%d\n", receive.msg_text, receive.msg_type, RECEIVE_MSG_TYPE);
+
             if (strcmp(receive.msg_text, "MAINTENANCE") == 0)
             {
-                  printf("enmterredad maintencna\n");
                   pthread_mutex_lock(&message_queue_mutex[server_number]);
                   // wait for tasks to end and send ready message
                   SM->EDGE_SERVERS[server_number].stopped = 1;
@@ -1072,6 +1423,7 @@ void *messageQueueReader(void *p)
 
 void maintenance_manager()
 {
+      SM->c_pid[2] = getpid();
       signal(SIGUSR1, maint_manager_handler);
       output_str("MAINTENANCE MANAGER WORKING\n");
 
@@ -1139,7 +1491,6 @@ void maintenance_manager()
             // signal cond for maintenance thread of chosen server and change flag
             maintWork[chosen_server] = 1;
             pthread_cond_broadcast(&maint_cond[chosen_server]);
-            output_str("maintenance manager signaled server for maintenance\n");
       }
 
       for (int i = 0; i < EDGE_SERVER_NUMBER; i++)
@@ -1259,16 +1610,15 @@ void edge_server_handler(int signum)
       }
 
       SM->EDGE_SERVERS[i].stopped = 0;
-      SM->times_edgeserver[i][0] = 1;
-      SM->times_edgeserver[i][1] = 1;
+      SM->EDGE_SERVERS[i].vcpu[0].assigned_task_time = 1;
+      SM->EDGE_SERVERS[i].vcpu[1].assigned_task_time = 1;
       pthread_cond_broadcast(&vcpuCond[i][0]);
       pthread_cond_broadcast(&vcpuCond[i][1]);
-
-      output_str("EDGE SERVER LEAVING\n");
 
       SM->taskToProcess[i][0] = 1;
       SM->taskToProcess[i][1] = 1;
       pthread_cond_broadcast(&SM->edgeServerCond[i]);
+      output_str("EDGE SERVER LEAVING\n");
 
       // exit(0);
 }
@@ -1312,9 +1662,13 @@ void task_manager_handler(int signum)
       // close all pipes
       close(taskpipe);
       output_str("closed_taskpipe\n");
-      SM->continue_dispatch = 1;
-      pthread_cond_broadcast(SM->continueDispatchCond);
       pthread_cancel(SM->taskmanager[0]);
+      SM->dispatcherWork = 1;
+      pthread_cond_broadcast(&SM->dispatcherCond);
+      output_str("SCHEDULER LEFT\n");
+      SM->continue_dispatch = 1;
+      // pthread_cond_broadcast(SM->continueDispatchCond);
+
       // signal all vcpus so they check the shutdown flag
 }
 
@@ -1365,34 +1719,29 @@ void end_sim()
 
       // dispacher and
       SM->shutdown = 1;
+      SM->performance_flag = 1;
 
       // signal processes to check condition variables
       // signal tm
       kill(SM->taskmanager[0], SIGUSR1);
-      output_str("1\n");
 
       // scheduler leaves with task pipe closure
 
       // signal dispatcher to leave
       SM->dispatcherWork = 1;
-      pthread_cond_broadcast(&SM->dispatcherCond); /*
-             SM->performance_flag = 1;
-             pthread_cond_broadcast(&SM->vcpuCond[0]);*/
-      output_str("2\n");
-      // signal mm
+      pthread_cond_broadcast(&SM->dispatcherCond);
 
-      output_str("3\n");
       // signal edge servers
-
-      for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
-      {
-            kill(SM->edge_pid[i], SIGUSR1);
-      }
-      output_str("4\n");
-
       SM->monitorWork = 1;
-      pthread_cond_broadcast(&SM->monitorCond);
-      output_str("HEEKKEKEKE\n");
+
+      if (fork() == 0)
+      {
+            for (int i = 0; i < SM->EDGE_SERVER_NUMBER; i++)
+            {
+                  kill(SM->edge_pid[i], SIGUSR1);
+            }
+            exit(0);
+      }
 
       sem_post(semaphore);
 }
@@ -1460,8 +1809,18 @@ void get_running_config(FILE *ptr, shared_memory *SM)
                         vCPU_capacities[1] = atoi(token);
                         // define server characteristics
                         strncpy(SM->EDGE_SERVERS[x].name, server_name, 20);
-                        SM->EDGE_SERVERS[x].vCPU_1_capacity = vCPU_capacities[0];
-                        SM->EDGE_SERVERS[x].vCPU_2_capacity = vCPU_capacities[1];
+                        // define vcpu 0 as the lower processing one
+                        if (vCPU_capacities[0] <= vCPU_capacities[1])
+                        {
+                              SM->EDGE_SERVERS[x].vcpu[0].capacity = vCPU_capacities[0];
+                              SM->EDGE_SERVERS[x].vcpu[1].capacity = vCPU_capacities[1];
+                        }
+                        else
+                        {
+                              SM->EDGE_SERVERS[x].vcpu[0].capacity = vCPU_capacities[1];
+                              SM->EDGE_SERVERS[x].vcpu[1].capacity = vCPU_capacities[0];
+                        }
+
                         // notify that server is ready
 
                         char a[] = " READY\n";

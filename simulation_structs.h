@@ -38,10 +38,19 @@ typedef struct
 
 typedef struct
 {
+        pthread_t thread;
+        pthread_cond_t cond;
+        pthread_mutex_t mutex;
+        int capacity;
+        int state;
+        int available;
+        int assigned_task_time;
+} vcpu;
+
+typedef struct
+{
         char name[20];
-        pthread_t vCPU[2];
-        int vCPU_1_capacity;
-        int vCPU_2_capacity;
+        vcpu vcpu[2];
         int executed_tasks;
         int maintenance_counter;
         int stopped;
@@ -123,8 +132,8 @@ typedef struct
 
         pthread_mutex_t *stoppedMutex;
 
-        pthread_cond_t *continueDispatchCond;
-        pthread_mutex_t *continueDispatchMutex;
+        pthread_cond_t continueDispatchCond;
+        pthread_mutex_t continueDispatchMutex;
 
         int continue_dispatch;
 
