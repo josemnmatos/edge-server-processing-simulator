@@ -1,0 +1,5 @@
+{
+    "files.associations": {
+        "simulation_structs.h": "c"
+    }
+}
