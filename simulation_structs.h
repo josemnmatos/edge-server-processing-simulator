@@ -42,7 +42,7 @@ typedef struct
         pthread_t thread;
         int capacity;
         volatile int free;
-        
+
 } vcpu;
 
 typedef struct
@@ -62,8 +62,8 @@ typedef struct
         int executed_tasks;
         int total_anwser_time;
         int unanswered_tasks;
-        int *executed_pserver;
-        int *maintenance_pserver;
+        int executed_pserver[10];
+        int maintenance_pserver[10];
 
 } stats;
 
@@ -93,15 +93,15 @@ typedef struct
         int QUEUE_POS;
         int MAX_WAIT;
         // edge server array
-        edge_server *EDGE_SERVERS;
+        edge_server EDGE_SERVERS[10];
         // task manager threads
         pthread_t taskmanager[2];
         // minimum waiting time
-        int *min_waiting;
+        int min_waiting[10];
         // process id's
         pid_t sm_pid;
         pid_t c_pid[NUM_PROCESS_INI];
-        pid_t *edge_pid;
+        pid_t edge_pid[10];
         // dispacher and scheduler condition to kill
         int shutdown;
         // elements in task queue
@@ -111,13 +111,15 @@ typedef struct
         // system stats
         stats simulation_stats;
         // vcpu times tasks
-        int **times_edgeserver;
+        int times_edgeserver[10][2];
 
         // conditions
 
-        int **taskToProcess;
-        pthread_cond_t *edgeServerCond;
-        pthread_mutex_t *edgeServerMutex;
+        int taskToProcess[10][2];
+        pthread_cond_t edgeServerCond[10];
+        pthread_mutex_t edgeServerMutex[10];
+
+        pthread_cond_t maintThreadCond[10];
 
         pthread_cond_t monitorCond;
         pthread_cond_t dispatcherCond;
