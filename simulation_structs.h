@@ -33,18 +33,16 @@ typedef struct
 {
         int vcpu_number;
         int server_number;
+        sem_t *free_sem;
 
 } vcpu_info;
 
 typedef struct
 {
         pthread_t thread;
-        pthread_cond_t cond;
-        pthread_mutex_t mutex;
         int capacity;
-        int state;
-        int available;
-        int assigned_task_time;
+        volatile int free;
+        
 } vcpu;
 
 typedef struct
@@ -112,8 +110,6 @@ typedef struct
         int performance_flag;
         // system stats
         stats simulation_stats;
-        // server with minimum waiting time
-        int server;
         // vcpu times tasks
         int **times_edgeserver;
 
